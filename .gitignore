@@ -43,3 +43,9 @@ yarn-error.*
 # artefactos locales
 lint.json
 preview-rutina.html
+
+# binarios de build (APK ~65 MB, nunca en git)
+*.apk
+*.aab
+*.ap_
+*.idsig
