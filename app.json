@@ -2,6 +2,7 @@
   "expo": {
     "name": "Personal Trainer",
     "slug": "PersonalTrainer",
+    "main": "expo-router/entry",
     "description": "Gestión de clientes, assessment y rutinas de hipertrofia offline-first",
     "version": "1.0.0",
     "orientation": "portrait",
