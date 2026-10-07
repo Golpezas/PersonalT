@@ -5,11 +5,12 @@
 import React from 'react';
 import { View, Text, ScrollView, StyleSheet, Pressable, Alert, Switch } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
+import { useFocusEffect } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useTheme } from '@/hooks/useTheme';
 import { useUIStore } from '@/stores';
-import { Button, Card, CardHeader, CardContent } from '@/components/ui';
-import { STORAGE_KEYS, UNITS } from '@/constants';
+import { Card, CardHeader, CardContent } from '@/components/ui';
+import { STORAGE_KEYS } from '@/constants';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import {
   exportAndShare,
@@ -18,7 +19,20 @@ import {
   getCounts,
   clearAllData,
   listAutoBackups,
-  getLastBackupAt } from '@/services/backup';
+  getLastBackupAt,
+  resyncStoresFromDatabase } from '@/services/backup';
+
+/** Cede un frame para que el overlay "ocupado" se pinte antes de trabajo síncrono. */
+const nextFrame = () => new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
+
+function safeCounts(): Record<string, number> {
+  try {
+    return getCounts();
+  } catch (e) {
+    console.warn('[ajustes] no se pudieron leer los conteos:', e);
+    return {};
+  }
+}
 
 const TABLE_LABELS: Record<string, string> = {
   clientes: 'Clientes',
@@ -32,7 +46,9 @@ const TABLE_LABELS: Record<string, string> = {
 export default function AjustesScreen() {
   const t = useTheme();
   const insets = useSafeAreaInsets();
-  const { theme, setTheme, addToast } = useUIStore();
+  const theme = useUIStore((s) => s.theme);
+  const setTheme = useUIStore((s) => s.setTheme);
+  const addToast = useUIStore((s) => s.addToast);
   const [autoBackup, setAutoBackup] = React.useState(false);
   const [backupFrequency, setBackupFrequency] = React.useState<'daily' | 'weekly' | 'never'>('never');
   const [units, setUnits] = React.useState<'metric' | 'imperial'>('metric');
@@ -50,12 +66,14 @@ export default function AjustesScreen() {
       if (savedBackup) setAutoBackup(savedBackup === 'true');
       const savedFreq = await AsyncStorage.getItem(STORAGE_KEYS.backupFrequency);
       if (savedFreq) setBackupFrequency(savedFreq as any);
-      setConteos(getCounts());
     };
     cargar();
   }, []);
 
-  const refreshCounts = () => setConteos(getCounts());
+  const refreshCounts = React.useCallback(() => setConteos(safeCounts()), []);
+
+  // La tab queda montada: se recuentan los registros cada vez que se enfoca.
+  useFocusEffect(refreshCounts);
 
   const saveSetting = async (key: string, value: string) => {
     await AsyncStorage.setItem(key, value);
@@ -89,9 +107,13 @@ export default function AjustesScreen() {
         await saveSetting(STORAGE_KEYS.backupFrequency, 'daily');
       }
       setOcupado('Generando backup...');
+      await nextFrame();
       const uri = runAutoBackup();
       setOcupado(null);
-      addToast(uri ? 'Backup automático activado' : 'No hay datos para respaldar', uri ? 'success' : 'info');
+      addToast(
+        uri ? 'Backup automático activado' : 'No se pudo generar el backup',
+        uri ? 'success' : 'error'
+      );
     } else {
       addToast('Backup automático desactivado', 'info');
     }
@@ -110,7 +132,9 @@ export default function AjustesScreen() {
   };
 
   const handleExportData = () => {
-    const total = Object.values(conteos).reduce((a, b) => a + b, 0);
+    const actuales = safeCounts();
+    setConteos(actuales);
+    const total = Object.values(actuales).reduce((a, b) => a + b, 0);
     if (total === 0) {
       addToast('No hay datos para exportar', 'warning');
       return;
@@ -118,7 +142,7 @@ export default function AjustesScreen() {
     Alert.alert(
       'Exportar datos',
       `Se generará un archivo JSON con ${total} registros:\n\n` +
-        Object.entries(conteos)
+        Object.entries(actuales)
           .filter(([, n]) => n > 0)
           .map(([t, n]) => `• ${TABLE_LABELS[t] || t}: ${n}`)
           .join('\n'),
@@ -128,9 +152,14 @@ export default function AjustesScreen() {
           text: 'Exportar',
           onPress: async () => {
             setOcupado('Generando archivo...');
+            await nextFrame();
             try {
-              const { total } = await exportAndShare();
-              addToast(`Backup exportado (${total} registros)`, 'success');
+              const { total, shared } = await exportAndShare();
+              if (shared) {
+                addToast(`Backup exportado (${total} registros)`, 'success');
+              } else {
+                addToast('Compartir no está disponible en este dispositivo', 'error');
+              }
             } catch (e: any) {
               addToast(`Error al exportar: ${e?.message ?? 'desconocido'}`, 'error');
             } finally {
@@ -180,6 +209,7 @@ export default function AjustesScreen() {
         return;
       }
       const total = Object.values(resultado.conteos).reduce((a, b) => a + b, 0);
+      resyncStoresFromDatabase();
       refreshCounts();
       addToast(`Importados ${total} registros`, 'success');
       Alert.alert(
@@ -216,6 +246,7 @@ export default function AjustesScreen() {
                 onPress: () => {
                   try {
                     clearAllData();
+                    resyncStoresFromDatabase();
                     refreshCounts();
                     addToast('Todos los datos fueron eliminados', 'warning');
                   } catch (e: any) {

@@ -29,7 +29,7 @@ export const useUIStore = create<UIState>()(
       setLoading: (loading) => set({ isLoading: loading }),
       toasts: [],
       addToast: (message, type = 'info') => {
-        const id = Date.now().toString();
+        const id = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
         set({ toasts: [...get().toasts, { id, message, type }] });
         setTimeout(() => get().removeToast(id), 4000);
       },

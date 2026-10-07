@@ -13,18 +13,6 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useTheme } from '@/hooks/useTheme';
 import { useClientesStore } from '@/stores';
 
-/** Rutas full-screen: se ocultan al entrar (logger, formularios, catálogo). */
-const FULLSCREEN_ROUTES = [
-  'entrenamiento/[rutinaId]/[diaId]',
-  'rutinas/nuevo',
-  'rutinas/catalogo',
-  'clientes/nuevo',
-  'clientes/[id]/ficha/nueva',
-  'clientes/[id]/checkin/nueva',
-  'clientes/[id]/meta/nueva',
-  'clientes/[id]/meta/[metaId]',
-];
-
 export default function TabsLayout() {
   const t = useTheme();
   const insets = useSafeAreaInsets();
@@ -51,7 +39,7 @@ export default function TabsLayout() {
       }}
     >
       <Tabs.Screen
-        name="clientes"
+        name="clientes/index"
         options={{
           title: 'Clientes',
           tabBarIcon: ({ focused, color, size }) => (
@@ -60,7 +48,7 @@ export default function TabsLayout() {
         }}
       />
       <Tabs.Screen
-        name="rutinas"
+        name="rutinas/index"
         options={{
           title: 'Rutinas',
           tabBarIcon: ({ focused, color, size }) => (
@@ -74,7 +62,7 @@ export default function TabsLayout() {
         }}
       />
       <Tabs.Screen
-        name="progreso"
+        name="progreso/index"
         options={{
           title: 'Progreso',
           tabBarIcon: ({ focused, color, size }) => (
@@ -87,7 +75,7 @@ export default function TabsLayout() {
         }}
       />
       <Tabs.Screen
-        name="ajustes"
+        name="ajustes/index"
         options={{
           title: 'Ajustes',
           tabBarIcon: ({ focused, color, size }) => (
@@ -95,14 +83,6 @@ export default function TabsLayout() {
           ),
         }}
       />
-
-      {FULLSCREEN_ROUTES.map((name) => (
-        <Tabs.Screen
-          key={name}
-          name={name}
-          options={{ headerShown: false, tabBarStyle: { display: 'none' } }}
-        />
-      ))}
     </Tabs>
   );
 }

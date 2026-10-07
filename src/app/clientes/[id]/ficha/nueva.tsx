@@ -3,23 +3,40 @@
  * Multi-step form: Antropometría → Perímetros → Fotos → Notas
  */
 
-import React, { useState, useEffect, useMemo } from 'react';
-import { View, Text, ScrollView, StyleSheet, Alert, TouchableOpacity, Image } from 'react-native';
+import React, { useState, useMemo, useRef } from 'react';
+import { View, Text, ScrollView, StyleSheet, Alert, TouchableOpacity, Image, KeyboardAvoidingView } from 'react-native';
 import { router, useLocalSearchParams } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
-import { useColorScheme } from '@/hooks/useColorScheme';
-import { useForm } from 'react-hook-form';
-import { zodResolver } from '@hookform/resolvers/zod';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useProgresoStore, useUIStore } from '@/stores';
-import { Button, Card, CardContent, Input, Modal } from '@/components/ui';
-import { fichaInicialSchema, validateOrThrow } from '@/schemas/validation';
+import { Button, Card, CardContent, Input } from '@/components/ui';
+import { fichaInicialSchema } from '@/schemas/validation';
 import * as ImagePicker from 'expo-image-picker';
-import { generateId, createEmptyPerimetros, createEmptyFotos, formatDate, getPerimetroLabel, checkAsymmetry } from '@/utils/helpers';
-import { getDatabase, runTransaction } from '@/db/database';
+import { generateId, createEmptyPerimetros, createEmptyFotos, getPerimetroLabel, checkAsymmetry, fechaLocalISO } from '@/utils/helpers';
+import { runTransaction } from '@/db/database';
 import { useTheme } from '@/hooks/useTheme';
 import type { Theme } from '@/constants/theme';
+import type { Perimetros } from '@/types';
 
 type Params = { id: string };
+
+/** "70,5" | "70.5" -> 70.5; vacío o inválido -> undefined. */
+const parseDecimal = (texto: string): number | undefined => {
+  const n = parseFloat(texto.replace(',', '.'));
+  return Number.isFinite(n) ? n : undefined;
+};
+
+/** Deja solo dígitos y un separador decimal mientras se escribe. */
+const limpiarDecimal = (texto: string): string => texto.replace(/[^\d.,]/g, '').replace(/([.,].*)[.,]/g, '$1');
+
+/** Paso del formulario donde vive cada campo del schema. */
+const PASO_POR_CAMPO: Record<string, number> = {
+  peso: 0,
+  grasaCorporal: 0,
+  musculatura: 0,
+  perimetros: 1,
+  fotos: 2,
+};
 
 const STEPS = [
   { key: 'antropometria', title: 'Antropometría', icon: 'body-outline' },
@@ -32,14 +49,33 @@ export default function FichaFormScreen() {
   // Tokens de diseño + styles derivados del tema activo
   const t = useTheme();
   const styles = useMemo(() => createStyles(t), [t]);
-  const { colorScheme } = useColorScheme();
-  const isDark = colorScheme === 'dark';
+  const insets = useSafeAreaInsets();
   const { id } = useLocalSearchParams<Params>();
   const { addToast } = useUIStore();
   const { setFicha: setFichaStore } = useProgresoStore();
   const [currentStep, setCurrentStep] = useState(0);
-  const [perimetros, setPerimetros] = useState(createEmptyPerimetros());
+  const scrollRef = useRef<ScrollView>(null);
+  const irAPaso = (paso: number) => {
+    setCurrentStep(paso);
+    scrollRef.current?.scrollTo({ y: 0, animated: false });
+  };
+  const [pesoTexto, setPesoTexto] = useState('');
+  const [grasaTexto, setGrasaTexto] = useState('');
+  const [musculoTexto, setMusculoTexto] = useState('');
+  const [perimetrosTexto, setPerimetrosTexto] = useState<Record<keyof Perimetros, string>>(() =>
+    Object.fromEntries(Object.keys(createEmptyPerimetros()).map((k) => [k, ''])) as Record<keyof Perimetros, string>
+  );
   const [fotos, setFotos] = useState(createEmptyFotos());
+  const [observaciones, setObservaciones] = useState('');
+  const [lesionLimitaciones, setLesionLimitaciones] = useState('');
+
+  const perimetros = useMemo(
+    () =>
+      Object.fromEntries(
+        Object.entries(perimetrosTexto).map(([k, v]) => [k, parseDecimal(v) ?? 0])
+      ) as unknown as Perimetros,
+    [perimetrosTexto]
+  );
 
   const pickFoto = async (tipo: keyof typeof fotos) => {
     const result = await ImagePicker.launchImageLibraryAsync({
@@ -68,30 +104,12 @@ export default function FichaFormScreen() {
   };
   const [submitting, setSubmitting] = useState(false);
 
-  const {
-    control,
-    handleSubmit,
-    getValues,
-    setValue,
-    formState: { errors } } = useForm({
-    resolver: zodResolver(fichaInicialSchema),
-    defaultValues: {
-      clienteId: id,
-      fecha: new Date().toISOString().split('T')[0],
-      peso: 70,
-      grasaCorporal: undefined,
-      musculatura: undefined,
-      perimetros: createEmptyPerimetros(),
-      fotos: createEmptyFotos(),
-      observaciones: '',
-      lesionLimitaciones: '' } });
-
-  const updatePerimetro = (key: keyof typeof perimetros, value: string) => {
-    const num = parseFloat(value) || 0;
-    const newPerimetros = { ...perimetros, [key]: num };
-    setPerimetros(newPerimetros);
-    setValue('perimetros', newPerimetros);
+  const updatePerimetro = (key: keyof Perimetros, value: string) => {
+    setPerimetrosTexto((prev) => ({ ...prev, [key]: limpiarDecimal(value) }));
   };
+
+  const peso = parseDecimal(pesoTexto);
+  const pesoValido = peso !== undefined && peso >= 30 && peso <= 300;
 
   const checkAsymmetries = () => {
     const asymmetries = checkAsymmetry(perimetros, 2);
@@ -104,18 +122,32 @@ export default function FichaFormScreen() {
     }
   };
 
-  const onSubmit = async (data: any) => {
+  const onSubmit = () => {
+    const resultado = fichaInicialSchema.safeParse({
+      clienteId: id,
+      fecha: fechaLocalISO(),
+      peso,
+      grasaCorporal: parseDecimal(grasaTexto),
+      musculatura: parseDecimal(musculoTexto),
+      perimetros,
+      fotos,
+      observaciones,
+      lesionLimitaciones,
+    });
+
+    if (!resultado.success) {
+      const issues = resultado.error.issues;
+      const paso = Math.min(...issues.map((i) => PASO_POR_CAMPO[String(i.path[0])] ?? 3));
+      irAPaso(paso);
+      Alert.alert('Revisá la ficha', issues.map((i) => `• ${i.message}`).join('\n'));
+      return;
+    }
+
     setSubmitting(true);
     try {
-      const validated = validateOrThrow(fichaInicialSchema, {
-        ...data,
-        perimetros,
-        fotos,
-        clienteId: id });
-
+      const validated = resultado.data;
       const now = new Date().toISOString();
       const fichaId = generateId();
-      const db = getDatabase();
 
       runTransaction((tx) => {
         tx.executeSync(
@@ -145,7 +177,7 @@ export default function FichaFormScreen() {
         creadoEn: now });
 
       addToast('Ficha inicial guardada', 'success');
-      router.replace(`/clientes/${id}`);
+      router.dismissTo(`/clientes/${id}`);
     } catch (error: any) {
       Alert.alert('Error', error.message || 'Error al guardar ficha');
     } finally {
@@ -156,9 +188,9 @@ export default function FichaFormScreen() {
   const allPerimetrosValid = Object.values(perimetros).every(v => v > 0);
 
   return (
-    <View style={styles.container}>
+    <KeyboardAvoidingView style={styles.container} behavior="padding">
       {/* Step Indicator */}
-      <View style={styles.stepBar}>
+      <View style={[styles.stepBar, { paddingTop: insets.top + 12 }]}>
         {STEPS.map((step, i) => (
           <TouchableOpacity
             key={step.key}
@@ -167,7 +199,7 @@ export default function FichaFormScreen() {
               i <= currentStep && styles.stepItemActive,
               i === currentStep && styles.stepItemCurrent,
             ]}
-            onPress={() => i < currentStep && setCurrentStep(i)}
+            onPress={() => i < currentStep && irAPaso(i)}
           >
             <View style={[
               styles.stepCircle,
@@ -188,7 +220,7 @@ export default function FichaFormScreen() {
         ))}
       </View>
 
-      <ScrollView contentContainerStyle={styles.scrollContent}>
+      <ScrollView ref={scrollRef} contentContainerStyle={styles.scrollContent} keyboardShouldPersistTaps="handled">
         {/* Step 1: Antropometría */}
         {currentStep === 0 && (
           <Card style={styles.formCard}>
@@ -196,9 +228,33 @@ export default function FichaFormScreen() {
               <Text style={styles.formTitle}>Antropometría</Text>
               <Text style={styles.formSubtitle}>Medidas básicas del cliente</Text>
 
-              <Input label="Peso (kg)" placeholder="70.5" control={control} name="peso" error={errors.peso?.message} keyboardType="decimal-pad" style={{ marginTop: 16 }} />
-              <Input label="Grasa Corporal (%)" placeholder="15.0" control={control} name="grasaCorporal" error={errors.grasaCorporal?.message} keyboardType="decimal-pad" style={{ marginTop: 16 }} />
-              <Input label="Masa Muscular (kg)" placeholder="30.0" control={control} name="musculatura" error={errors.musculatura?.message} keyboardType="decimal-pad" style={{ marginTop: 16 }} />
+              <View style={styles.campos}>
+                <Input
+                  label="Peso (kg)"
+                  placeholder="70,5"
+                  value={pesoTexto}
+                  onChange={(v) => setPesoTexto(limpiarDecimal(v))}
+                  keyboardType="decimal-pad"
+                  required
+                  error={pesoTexto && !pesoValido ? 'Peso entre 30 y 300 kg' : undefined}
+                />
+                <Input
+                  label="Grasa Corporal (%)"
+                  placeholder="15"
+                  value={grasaTexto}
+                  onChange={(v) => setGrasaTexto(limpiarDecimal(v))}
+                  keyboardType="decimal-pad"
+                  helperText="Opcional"
+                />
+                <Input
+                  label="Masa Muscular (kg)"
+                  placeholder="30"
+                  value={musculoTexto}
+                  onChange={(v) => setMusculoTexto(limpiarDecimal(v))}
+                  keyboardType="decimal-pad"
+                  helperText="Opcional"
+                />
+              </View>
 
               <View style={styles.tipBox}>
                 <Ionicons name="information-circle-outline" size={20} color="#0ea5e9" />
@@ -215,19 +271,21 @@ export default function FichaFormScreen() {
               <Text style={styles.formTitle}>Perímetros (cm)</Text>
               <Text style={styles.formSubtitle}>Medidas en cm</Text>
 
-              {Object.entries(perimetros).map(([key, value]) => (
+              {Object.entries(perimetrosTexto).map(([key, value]) => (
                 <View key={key} style={styles.perimetroRow}>
                   <Text style={styles.perimetroLabel}>{getPerimetroLabel(key as any)}</Text>
                   <View style={styles.perimetroInputWrapper}>
                     <Input
                       placeholder="0"
-                      value={value > 0 ? value.toString() : ''}
-                      onChangeText={(v) => updatePerimetro(key as any, v)}
+                      value={value}
+                      onChange={(v) => updatePerimetro(key as keyof Perimetros, v)}
                       keyboardType="decimal-pad"
+                      maxLength={5}
+                      compact
                       style={styles.perimetroInput}
                     />
-                    <Text style={styles.perimetroUnit}>cm</Text>
                   </View>
+                  <Text style={styles.perimetroUnit}>cm</Text>
                 </View>
               ))}
 
@@ -243,7 +301,7 @@ export default function FichaFormScreen() {
           <Card style={styles.formCard}>
             <CardContent>
               <Text style={styles.formTitle}>Fotos de Progreso</Text>
-              <Text style={styles.formSubtitle}>Toma 3, fotos: frontal, lateral y posterior</Text>
+              <Text style={styles.formSubtitle}>Opcional: frontal, lateral y posterior</Text>
 
               {(['frontal', 'lateral', 'posterior'] as const).map((tipo) => (
                 <View key={tipo} style={styles.fotoSlot}>
@@ -289,24 +347,24 @@ export default function FichaFormScreen() {
               <Text style={styles.formTitle}>Notas y Observaciones</Text>
               <Text style={styles.formSubtitle}>Información adicional</Text>
 
-              <Input
-                label="Observaciones generales"
-                placeholder="Historia de entrenamiento, objetivos, etc."
-                control={control}
-                name="observaciones"
-                multiline
-                numberOfLines={4}
-                style={{ marginTop: 16 }}
-              />
-              <Input
-                label="Lesiones / Limitaciones"
-                placeholder="Restricciones médicas, lesiones pasadas o actuales..."
-                control={control}
-                name="lesionLimitaciones"
-                multiline
-                numberOfLines={4}
-                style={{ marginTop: 16 }}
-              />
+              <View style={styles.campos}>
+                <Input
+                  label="Observaciones generales"
+                  placeholder="Historia de entrenamiento, objetivos, etc."
+                  value={observaciones}
+                  onChange={setObservaciones}
+                  multiline
+                  numberOfLines={4}
+                />
+                <Input
+                  label="Lesiones / Limitaciones"
+                  placeholder="Restricciones médicas, lesiones pasadas o actuales..."
+                  value={lesionLimitaciones}
+                  onChange={setLesionLimitaciones}
+                  multiline
+                  numberOfLines={4}
+                />
+              </View>
             </CardContent>
           </Card>
         )}
@@ -314,7 +372,7 @@ export default function FichaFormScreen() {
         {/* Navigation Buttons */}
         <View style={styles.buttonRow}>
           {currentStep > 0 && (
-            <Button variant="outline" onPress={() => setCurrentStep(currentStep - 1)} style={styles.navButton}>
+            <Button variant="outline" onPress={() => irAPaso(currentStep - 1)} style={styles.navButton}>
               ← Anterior
             </Button>
           )}
@@ -323,17 +381,17 @@ export default function FichaFormScreen() {
               variant="primary"
               onPress={() => {
                 if (currentStep === 1) checkAsymmetries();
-                setCurrentStep(currentStep + 1);
+                irAPaso(currentStep + 1);
               }}
               style={styles.navButton}
-              disabled={currentStep === 1 && !allPerimetrosValid}
+              disabled={(currentStep === 0 && !pesoValido) || (currentStep === 1 && !allPerimetrosValid)}
             >
               Siguiente →
             </Button>
           ) : (
             <Button
               variant="primary"
-              onPress={handleSubmit(onSubmit)}
+              onPress={onSubmit}
               loading={submitting}
               style={styles.navButton}
               leftIcon={<Ionicons name="checkmark-circle-outline" size={20} color="#fff" />}
@@ -343,7 +401,7 @@ export default function FichaFormScreen() {
           )}
         </View>
       </ScrollView>
-    </View>
+    </KeyboardAvoidingView>
   );
 }
 
@@ -372,17 +430,18 @@ const createStyles = (t: Theme) => StyleSheet.create({
   formCard: { borderWidth: 1, borderColor: t.colors.border },
   formTitle: { fontSize: 20, fontWeight: '700', color: t.colors.text, marginBottom: 4 },
   formSubtitle: { fontSize: 14, color: t.colors.textMuted, marginBottom: 16 },
+  campos: { gap: 16 },
   tipBox: {
     flexDirection: 'row', gap: 8, alignItems: 'flex-start',
     backgroundColor: 'rgba(14, 165, 233, 0.08)', borderRadius: 10, padding: 12, marginTop: 16 },
   tipText: { flex: 1, fontSize: 13, color: t.colors.text, lineHeight: 20},
   perimetroRow: {
-    flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
-    paddingVertical: 12, borderBottomWidth: 1, borderBottomColor: t.colors.border },
+    flexDirection: 'row', alignItems: 'center', gap: 8,
+    paddingVertical: 8, borderBottomWidth: 1, borderBottomColor: t.colors.border },
   perimetroLabel: { fontSize: 14, color: t.colors.text, flex: 1 },
-  perimetroInputWrapper: { flexDirection: 'row', alignItems: 'center', gap: 8 },
-  perimetroInput: { width: 80, textAlign: 'right' },
-  perimetroUnit: { fontSize: 14, color: t.colors.textSubtle},
+  perimetroInputWrapper: { width: 96 },
+  perimetroInput: { textAlign: 'right' },
+  perimetroUnit: { fontSize: 13, color: t.colors.textSubtle, width: 22 },
   warningText: { fontSize: 13, color: t.colors.warning, marginTop: 16},
   fotoSlot: { marginBottom: 20 },
   fotoLabel: { fontSize: 14, fontWeight: '500', color: t.colors.text, marginBottom: 8 },

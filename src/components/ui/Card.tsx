@@ -6,7 +6,7 @@
  */
 
 import React from 'react';
-import { View, Text, StyleSheet, Pressable } from 'react-native';
+import { View, Text, Pressable } from 'react-native';
 import { useTheme } from '@/hooks/useTheme';
 
 interface CardProps {
@@ -29,29 +29,40 @@ export const Card = React.forwardRef<View, CardProps>(
       md: t.spacing.lg,
       lg: t.spacing.xxl }[padding];
 
-    const Component = onPress ? Pressable : View;
+    const baseStyle = [
+      {
+        backgroundColor: t.colors.surface,
+        borderRadius: t.radius.lg,
+        padding: paddingValue,
+        borderWidth: bordered ? 1 : 0,
+        borderColor: t.colors.border,
+        overflow: 'hidden' as const },
+      elevated ? t.shadow(1) : null,
+    ];
+
+    // `View` no acepta `style` como función: solo `Pressable` recibe el estado `pressed`.
+    if (!onPress) {
+      return (
+        <View ref={ref} style={[...baseStyle, style]} {...(props as any)}>
+          {children}
+        </View>
+      );
+    }
 
     return (
-      <Component
+      <Pressable
         ref={ref}
         onPress={onPress}
-        accessibilityRole={onPress ? 'button' : undefined}
-        style={({ pressed }: any) => [
-          {
-            backgroundColor: t.colors.surface,
-            borderRadius: t.radius.lg,
-            padding: paddingValue,
-            borderWidth: bordered ? 1 : 0,
-            borderColor: t.colors.border,
-            overflow: 'hidden' },
-          elevated ? t.shadow(1) : null,
+        accessibilityRole="button"
+        style={({ pressed }) => [
+          ...baseStyle,
           pressed && { opacity: 0.9, transform: [{ scale: 0.995 }] },
           style,
         ]}
         {...(props as any)}
       >
         {children}
-      </Component>
+      </Pressable>
     );
   }
 );
@@ -126,6 +137,3 @@ export const CardFooter = ({ children, style, divided = true }: CardFooterProps)
 };
 
 CardFooter.displayName = 'CardFooter';
-
-const styles = StyleSheet.create({
-  unused: {} });

@@ -3,59 +3,104 @@
  * Synchronous, JSI-based SQLite for React Native
  */
 
-import { open } from '@op-engineering/op-sqlite';
+import { open, type DB } from '@op-engineering/op-sqlite';
 import { CREATE_TABLES_SQL, MIGRATIONS, DATABASE_NAME, DATABASE_VERSION } from './schema';
-import type { Ejercicio } from '@/types';
+import type { CheckinSemanal, Ejercicio, EntrenamientoRealizado, FichaInicial } from '@/types';
 
-let dbInstance: ReturnType<typeof open> | null = null;
+let dbInstance: DB | null = null;
+let initialized = false;
 
-export function getDatabase() {
+/**
+ * Devuelve la conexión, abriéndola e inicializándola (pragmas, migraciones,
+ * esquema, seed) la primera vez. Idempotente: llamarla N veces no repite el setup.
+ */
+export function getDatabase(): DB {
   if (!dbInstance) {
     dbInstance = open({ name: DATABASE_NAME });
-    initializeDatabase();
+  }
+  if (!initialized) {
+    // Se marca antes del setup para que una llamada reentrante no lo repita.
+    initialized = true;
+    try {
+      setupDatabase(dbInstance);
+    } catch (error) {
+      initialized = false;
+      throw error;
+    }
   }
   return dbInstance;
 }
 
-export function initializeDatabase() {
-  const db = getDatabase();
+/** Alias explícito para el arranque de la app; equivalente a `getDatabase()`. */
+export function initializeDatabase(): void {
+  getDatabase();
+}
 
-  // Enable WAL mode for better concurrency
+function setupDatabase(db: DB) {
   db.executeSync('PRAGMA journal_mode = WAL;');
   db.executeSync('PRAGMA foreign_keys = ON;');
   db.executeSync('PRAGMA busy_timeout = 5000;');
 
-  // Run migrations
   runMigrations(db);
-
-  // Seed initial data if empty
+  // Repara instalaciones con user_version al día pero tablas faltantes.
+  ensureSchema(db);
   seedExercisesIfEmpty(db);
 }
 
-function runMigrations(db: ReturnType<typeof open>) {
-  const result = db.executeSync('PRAGMA user_version;');
-  const currentVersion = (result.rows[0] as any)?.user_version ?? 0;
+/**
+ * Parte un script SQL en sentencias individuales. Solo apto para nuestros
+ * scripts de esquema: elimina comentarios `--` y corta por `;`, así que no
+ * soporta `;` ni `--` dentro de literales de texto.
+ */
+function splitSqlStatements(sql: string): string[] {
+  return sql
+    .split('\n')
+    .map((line) => {
+      const idx = line.indexOf('--');
+      return idx >= 0 ? line.slice(0, idx) : line;
+    })
+    .join('\n')
+    .split(';')
+    .map((s) => s.trim())
+    .filter((s) => s.length > 0);
+}
 
-  for (let v = currentVersion + 1; v <= DATABASE_VERSION; v++) {
-    const migration = MIGRATIONS[v];
-    if (migration) {
-      db.executeSync(migration);
-      db.executeSync(`PRAGMA user_version = ${v};`);
-    }
+function execScript(db: DB, sql: string) {
+  for (const statement of splitSqlStatements(sql)) {
+    db.executeSync(statement);
   }
 }
 
-function seedExercisesIfEmpty(db: ReturnType<typeof open>) {
+function runMigrations(db: DB) {
+  const result = db.executeSync('PRAGMA user_version;');
+  const currentVersion = Number((result.rows[0] as any)?.user_version ?? 0) || 0;
+
+  for (let v = currentVersion + 1; v <= DATABASE_VERSION; v++) {
+    const migration = MIGRATIONS[v];
+    if (!migration) continue;
+    transact(db, (tx) => {
+      execScript(tx, migration);
+      tx.executeSync(`PRAGMA user_version = ${v};`);
+    });
+  }
+}
+
+function ensureSchema(db: DB) {
+  execScript(db, CREATE_TABLES_SQL);
+}
+
+function seedExercisesIfEmpty(db: DB) {
   const result = db.executeSync('SELECT COUNT(*) as count FROM ejercicios;');
-  const count = (result.rows[0] as any)?.count ?? 0;
+  const count = Number((result.rows[0] as any)?.count ?? 0) || 0;
+  if (count > 0) return;
 
-  if (count === 0) {
-    const exercises = getInitialExercises();
-    const now = new Date().toISOString();
+  const exercises = getInitialExercises();
+  const now = new Date().toISOString();
 
+  transact(db, (tx) => {
     for (const ex of exercises) {
-      db.executeSync(
-        `INSERT INTO ejercicios (id, nombre, grupo_muscular, patron, equipo, descripcion, video_uri, imagen_uri, es_compuesto, creado_en)
+      tx.executeSync(
+        `INSERT OR IGNORE INTO ejercicios (id, nombre, grupo_muscular, patron, equipo, descripcion, video_uri, imagen_uri, es_compuesto, creado_en)
          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         [
           ex.id,
@@ -63,7 +108,7 @@ function seedExercisesIfEmpty(db: ReturnType<typeof open>) {
           ex.grupoMuscular,
           ex.patron,
           JSON.stringify(ex.equipo),
-          ex.descripcion,
+          ex.descripcion ?? null,
           ex.videoUri ?? null,
           ex.imagenUri ?? null,
           ex.esCompuesto ? 1 : 0,
@@ -71,6 +116,19 @@ function seedExercisesIfEmpty(db: ReturnType<typeof open>) {
         ]
       );
     }
+  });
+}
+
+/** Re-siembra el catálogo base si la tabla `ejercicios` quedó vacía (tras limpiar/restaurar). */
+export function ensureSeedData(): void {
+  seedExercisesIfEmpty(getDatabase());
+}
+
+function safeRollback(db: DB) {
+  try {
+    db.executeSync('ROLLBACK;');
+  } catch {
+    // No había transacción activa (SQLite ya la revirtió).
   }
 }
 
@@ -176,17 +234,27 @@ function getInitialExercises(): Ejercicio[] {
 }
 
 // Transaction helper
-export function runTransaction<T>(fn: (db: ReturnType<typeof open>) => T): T {
-  const db = getDatabase();
+let txDepth = 0;
+
+function transact<T>(db: DB, fn: (db: DB) => T): T {
+  // SQLite no admite BEGIN anidado: las llamadas internas se suman a la transacción externa.
+  if (txDepth > 0) return fn(db);
   db.executeSync('BEGIN TRANSACTION;');
+  txDepth++;
   try {
     const result = fn(db);
     db.executeSync('COMMIT;');
     return result;
   } catch (error) {
-    db.executeSync('ROLLBACK;');
+    safeRollback(db);
     throw error;
+  } finally {
+    txDepth--;
   }
+}
+
+export function runTransaction<T>(fn: (db: DB) => T): T {
+  return transact(getDatabase(), fn);
 }
 
 // Query helpers
@@ -211,4 +279,114 @@ export function executeSync(sql: string, params: unknown[] = []): { changes: num
 export function execSync(sql: string): void {
   const db = getDatabase();
   db.executeSync(sql);
+}
+
+// ============================================
+// Lecturas de dominio (SQLite es la fuente de verdad)
+// ============================================
+function parseJson<T>(value: unknown, fallback: T): T {
+  if (typeof value !== 'string' || value.length === 0) return fallback;
+  try {
+    return JSON.parse(value) as T;
+  } catch {
+    return fallback;
+  }
+}
+
+const numOrUndef = (v: unknown): number | undefined =>
+  v === null || v === undefined || v === '' ? undefined : Number(v);
+
+const EMPTY_FOTOS = { frontal: '', lateral: '', posterior: '' };
+
+function filaAFicha(r: any): FichaInicial {
+  return {
+    id: r.id,
+    clienteId: r.cliente_id,
+    fecha: r.fecha,
+    peso: Number(r.peso),
+    grasaCorporal: numOrUndef(r.grasa_corporal),
+    musculatura: numOrUndef(r.musculatura),
+    perimetros: parseJson(r.perimetros, {} as FichaInicial['perimetros']),
+    pliegues: parseJson<Record<string, number> | undefined>(r.pliegues, undefined),
+    fotos: parseJson(r.fotos, EMPTY_FOTOS),
+    observaciones: r.observaciones ?? '',
+    lesionLimitaciones: r.lesion_limitaciones ?? '',
+    creadoEn: r.creado_en,
+  };
+}
+
+function filaACheckin(r: any): CheckinSemanal {
+  return {
+    id: r.id,
+    clienteId: r.cliente_id,
+    semana: Number(r.semana),
+    fecha: r.fecha,
+    peso: Number(r.peso),
+    grasaCorporal: numOrUndef(r.grasa_corporal),
+    musculatura: numOrUndef(r.musculatura),
+    perimetros: parseJson(r.perimetros, {} as CheckinSemanal['perimetros']),
+    fotos: parseJson(r.fotos, EMPTY_FOTOS),
+    energia: Number(r.energia) as CheckinSemanal['energia'],
+    sueno: Number(r.sueno) as CheckinSemanal['sueno'],
+    estres: Number(r.estres) as CheckinSemanal['estres'],
+    adherencia: Number(r.adherencia) as CheckinSemanal['adherencia'],
+    notas: r.notas ?? '',
+    creadoEn: r.creado_en,
+  };
+}
+
+function filaAEntrenamiento(r: any): EntrenamientoRealizado {
+  return {
+    id: r.id,
+    clienteId: r.cliente_id,
+    rutinaSemanalId: r.rutina_semanal_id,
+    diaRutinaId: r.dia_rutina_id,
+    fecha: r.fecha,
+    duracionMin: Number(r.duracion_min),
+    ejercicios: parseJson(r.ejercicios, [] as EntrenamientoRealizado['ejercicios']),
+    rpeGlobal: numOrUndef(r.rpe_global) as EntrenamientoRealizado['rpeGlobal'],
+    notas: r.notas ?? '',
+  };
+}
+
+/** Ficha inicial más reciente del cliente, o null si no tiene. */
+export function leerFichaInicial(clienteId: string): FichaInicial | null {
+  try {
+    const r = getDatabase().executeSync(
+      'SELECT * FROM fichas_iniciales WHERE cliente_id = ? ORDER BY fecha DESC, creado_en DESC LIMIT 1',
+      [clienteId]
+    ).rows[0];
+    return r ? filaAFicha(r) : null;
+  } catch (error) {
+    console.error('[db] error al leer ficha inicial:', error);
+    return null;
+  }
+}
+
+/** Check-ins del cliente ordenados por semana ascendente (el último es el más reciente). */
+export function leerCheckins(clienteId: string): CheckinSemanal[] {
+  try {
+    const rows = getDatabase().executeSync(
+      'SELECT * FROM checkins_semanales WHERE cliente_id = ? ORDER BY semana ASC, fecha ASC',
+      [clienteId]
+    ).rows;
+    return rows.map(filaACheckin);
+  } catch (error) {
+    console.error('[db] error al leer check-ins:', error);
+    return [];
+  }
+}
+
+/** Entrenamientos registrados del cliente, del más reciente al más antiguo. */
+export function leerEntrenamientos(clienteId: string): EntrenamientoRealizado[] {
+  try {
+    const rows = getDatabase().executeSync(
+      'SELECT * FROM entrenamientos_realizados WHERE cliente_id = ? ORDER BY fecha DESC',
+      [clienteId]
+    ).rows;
+    return rows.map(filaAEntrenamiento);
+  } catch (error) {
+    console.error('[db] error al leer entrenamientos:', error);
+    return [];
+  }
 }

@@ -7,11 +7,12 @@ import { z } from 'zod';
 import type { Sexo, GrupoMuscular, PatronMovimiento, Equipo, TipoProgresion, TipoMeta, EstadoMeta } from '@/db/schema';
 
 // Reusable primitives
-const uuidSchema = z.string().uuid('ID inválido');
+// Los IDs del catálogo ("ex-1") y de días ("d1") no son UUID: solo se exige que existan.
+const uuidSchema = z.string().min(1, 'ID inválido');
 const isoDateSchema = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Formato de fecha inválido (YYYY-MM-DD)');
 const isoDateTimeSchema = z.string().datetime({ offset: true });
 const positiveNumber = z.number().positive('Debe ser un número positivo');
-const nonNegativeNumber = z.number().min(0, 'No puede ser negativo');
+const nonNegativeNumber = z.number({ message: 'Número requerido' }).min(0, 'No puede ser negativo');
 const rpeSchema = z.number().int().min(1).max(10, 'RPE debe ser entre 1 y 10');
 const rpeObjetivoSchema = z.number().int().min(6).max(10, 'RPE objetivo entre 6 y 10');
 const seriesSchema = z.number().int().min(1).max(20, 'Series entre 1 y 20');
@@ -34,9 +35,9 @@ const perimetrosSchema = z.object({
   pantorrillaDer: nonNegativeNumber });
 
 const fotosProgresoSchema = z.object({
-  frontal: z.string().min(1, 'Foto frontal requerida'),
-  lateral: z.string().min(1, 'Foto lateral requerida'),
-  posterior: z.string().min(1, 'Foto posterior requerida') });
+  frontal: z.string(),
+  lateral: z.string(),
+  posterior: z.string() });
 
 const plieguesSchema = z.record(z.string(), nonNegativeNumber).optional();
 
@@ -81,7 +82,7 @@ export const clienteSchema = z.object({
   telefono: z.string().max(20).optional().or(z.literal('')),
   fechaNacimiento: isoDateSchema,
   sexo: z.enum(['M', 'F', 'Otro']),
-  altura: z.number().int().min(100).max(250, 'Altura 100-250 cm'),
+  altura: z.number({ error: 'Altura requerida' }).int('Altura en cm, sin decimales').min(100, 'Altura 100-250 cm').max(250, 'Altura 100-250 cm'),
   fotoUri: z.string().optional(),
   creadoEn: isoDateTimeSchema.optional(),
   actualizadoEn: isoDateTimeSchema.optional() });
@@ -95,9 +96,9 @@ export const fichaInicialSchema = z.object({
   id: uuidSchema.optional(),
   clienteId: uuidSchema,
   fecha: isoDateSchema,
-  peso: z.number().min(30).max(300, 'Peso 30-300 kg'),
-  grasaCorporal: z.number().min(3).max(50, 'Grasa 3-50%').optional(),
-  musculatura: z.number().min(10).max(150, 'Musculatura 10-150 kg').optional(),
+  peso: z.number({ message: 'Peso requerido' }).min(30, 'Peso 30-300 kg').max(300, 'Peso 30-300 kg'),
+  grasaCorporal: z.number().min(3, 'Grasa 3-50%').max(50, 'Grasa 3-50%').optional(),
+  musculatura: z.number().min(10, 'Musculatura 10-150 kg').max(150, 'Musculatura 10-150 kg').optional(),
   perimetros: perimetrosSchema,
   pliegues: plieguesSchema,
   fotos: fotosProgresoSchema,
@@ -115,9 +116,9 @@ export const checkinSemanalSchema = z.object({
   clienteId: uuidSchema,
   semana: z.number().int().min(1, 'Semana mínima 1'),
   fecha: isoDateSchema,
-  peso: z.number().min(30).max(300, 'Peso 30-300 kg'),
-  grasaCorporal: z.number().min(3).max(50).optional(),
-  musculatura: z.number().min(10).max(150).optional(),
+  peso: z.number({ message: 'Peso requerido' }).min(30, 'Peso 30-300 kg').max(300, 'Peso 30-300 kg'),
+  grasaCorporal: z.number().min(3, 'Grasa 3-50%').max(50, 'Grasa 3-50%').optional(),
+  musculatura: z.number().min(10, 'Musculatura 10-150 kg').max(150, 'Musculatura 10-150 kg').optional(),
   perimetros: perimetrosSchema,
   fotos: fotosProgresoSchema,
   energia: rating1a5Schema,
@@ -210,7 +211,7 @@ export const rutinaSemanalSchema = z.object({
 ).refine(
   (data) => {
     // Verificar que los días tengan orden único 1-7
-    const ordenes = data.dias.map(d => d.orden).sort();
+    const ordenes = data.dias.map(d => d.orden).sort((a, b) => a - b);
     return ordenes.every((v, i) => v === i + 1);
   },
   { message: 'Los días deben tener orden 1-7 sin huecos', path: ['dias'] }

@@ -3,23 +3,40 @@
  * Regla de negocio SPEC.md §1.9 — la ficha es la base paraPrescribir volumen/RPE.
  */
 
-import { useEffect, useRef } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Alert } from 'react-native';
-import { router } from 'expo-router';
+import { router, useFocusEffect } from 'expo-router';
 import { useProgresoStore } from '@/stores';
+import { leerFichaInicial } from '@/db/database';
 
 /**
- * Devuelve si el cliente tiene ficha inicial. `tieneFicha` es un valor derivado
- * (no estado) para evitar setState dentro de un efecto.
+ * Devuelve si el cliente tiene ficha inicial, leyendo `fichas_iniciales` en
+ * SQLite (fuente de verdad). Se relee al enfocar la pantalla y cuando el store
+ * de sesión registra una ficha nueva.
  */
 export function useGuardFicha(clienteId: string | null, autoRedirect = true) {
-  const ficha = useProgresoStore((s) => (clienteId ? s.fichas[clienteId] : undefined));
+  const fichaSesion = useProgresoStore((s) => (clienteId ? s.fichas[clienteId] : undefined));
+  const [focusTick, setFocusTick] = useState(0);
+
+  useFocusEffect(
+    useCallback(() => {
+      setFocusTick((v) => v + 1);
+    }, [])
+  );
+
+  const ficha = useMemo(
+    () => (clienteId ? leerFichaInicial(clienteId) ?? fichaSesion ?? null : null),
+    // `focusTick` fuerza la relectura de SQLite al volver a la pantalla.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [clienteId, fichaSesion, focusTick]
+  );
   const tieneFicha = !!clienteId && !!ficha;
-  const yaEvaluado = useRef(false);
+
+  const evaluadoPara = useRef<string | null>(null);
 
   useEffect(() => {
-    if (tieneFicha || !autoRedirect || !clienteId || yaEvaluado.current) return;
-    yaEvaluado.current = true;
+    if (tieneFicha || !autoRedirect || !clienteId || evaluadoPara.current === clienteId) return;
+    evaluadoPara.current = clienteId;
     Alert.alert(
       'Falta la ficha inicial',
       'Para diseñar una rutina necesitamos la ficha inicial del cliente (antropometría, perímetros y objetivos).',
@@ -28,9 +45,10 @@ export function useGuardFicha(clienteId: string | null, autoRedirect = true) {
         {
           text: 'Crear ficha',
           onPress: () => router.replace(`/clientes/${clienteId}/ficha/nueva`) },
-      ]
+      ],
+      { cancelable: false }
     );
   }, [tieneFicha, autoRedirect, clienteId]);
 
-  return { tieneFicha, ficha };
+  return { tieneFicha, ficha: ficha ?? undefined };
 }

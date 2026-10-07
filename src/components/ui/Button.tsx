@@ -9,6 +9,7 @@
 import React, { useState } from 'react';
 import { Pressable, Text, StyleSheet, ActivityIndicator, Animated, View } from 'react-native';
 import { useTheme } from '@/hooks/useTheme';
+import { splitLayoutStyle } from './splitLayoutStyle';
 
 export type ButtonVariant = 'primary' | 'accent' | 'soft' | 'outline' | 'ghost' | 'danger';
 export type ButtonSize = 'xs' | 'sm' | 'md' | 'lg';
@@ -54,6 +55,7 @@ export const Button = React.forwardRef<View, ButtonProps>(
     const padH = { xs: 10, sm: 14, md: 18, lg: 22 }[size];
     const fontSize = { xs: 12, sm: 13, md: 15, lg: 16 }[size];
     const isInactive = !!disabled || loading;
+    const { outerStyle, innerStyle } = splitLayoutStyle(style);
 
     // Presión: encoge levemente. Da sensación de "fisicalidad" sin librerías extra.
     const animate = (to: number) =>
@@ -64,7 +66,7 @@ export const Button = React.forwardRef<View, ButtonProps>(
         bounciness: 4 }).start();
 
     return (
-      <Animated.View style={{ transform: [{ scale }], opacity: isInactive ? 0.55 : 1 }}>
+      <Animated.View style={[(fullWidth || block) && styles.fullWidthOuter, outerStyle, { transform: [{ scale }], opacity: isInactive ? 0.55 : 1 }]}>
         <Pressable
           ref={ref}
           disabled={isInactive}
@@ -83,7 +85,7 @@ export const Button = React.forwardRef<View, ButtonProps>(
               borderWidth: border === 'transparent' ? 0 : 1.5 },
             variant === 'primary' && !isInactive ? t.shadow(1) : null,
             (fullWidth || block) && styles.fullWidth,
-            style,
+            innerStyle,
           ]}
           {...props}
         >
@@ -139,6 +141,8 @@ const styles = StyleSheet.create({
     gap: 7 },
   fullWidth: {
     width: '100%' },
+  fullWidthOuter: {
+    alignSelf: 'stretch' },
   icon: {
     alignItems: 'center',
     justifyContent: 'center' },

@@ -5,9 +5,9 @@
  * Todo el styling sale de `useTheme()` para compartir look con el resto de la app.
  */
 
-import React, { useEffect, useCallback, useMemo } from 'react';
+import React, { useCallback, useMemo } from 'react';
 import { View, Text, FlatList, RefreshControl, StyleSheet, Pressable, Alert } from 'react-native';
-import { router } from 'expo-router';
+import { router, useFocusEffect } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useTheme } from '@/hooks/useTheme';
@@ -36,13 +36,13 @@ export default function ClientesScreen() {
     if (!q) return clientes;
     return clientes.filter(
       (c) =>
-        c.nombre.toLowerCase().includes(q) ||
-        c.apellido.toLowerCase().includes(q) ||
-        c.email?.toLowerCase().includes(q)
+        (c.nombre ?? '').toLowerCase().includes(q) ||
+        (c.apellido ?? '').toLowerCase().includes(q) ||
+        (c.email ?? '').toLowerCase().includes(q)
     );
   }, [clientes, searchQuery]);
 
-  const loadClientes = useCallback(async () => {
+  const loadClientes = useCallback(() => {
     setLoading(true);
     try {
       const db = getDatabase();
@@ -50,14 +50,14 @@ export default function ClientesScreen() {
       setClientes(
         result.rows.map((row: any) => ({
           id: row.id,
-          nombre: row.nombre,
-          apellido: row.apellido,
-          email: row.email,
-          telefono: row.telefono,
+          nombre: row.nombre ?? '',
+          apellido: row.apellido ?? '',
+          email: row.email ?? undefined,
+          telefono: row.telefono ?? undefined,
           fechaNacimiento: row.fecha_nacimiento,
           sexo: row.sexo,
-          altura: row.altura,
-          fotoUri: row.foto_uri,
+          altura: Number(row.altura) || 0,
+          fotoUri: row.foto_uri ?? undefined,
           creadoEn: row.creado_en,
           actualizadoEn: row.actualizado_en,
         }))
@@ -70,14 +70,12 @@ export default function ClientesScreen() {
     }
   }, [setClientes, setLoading, addToast]);
 
-  useEffect(() => {
-    loadClientes();
-  }, [loadClientes]);
+  // Relee SQLite cada vez que la pestaña gana foco (al volver de alta/edición/borrado).
+  useFocusEffect(loadClientes);
 
   const deleteClienteAndData = useCallback(
-    async (id: string) => {
+    (id: string) => {
       try {
-        const db = getDatabase();
         runTransaction((tx) => {
           // Las tablas hijas tienen ON DELETE CASCADE
           tx.executeSync('DELETE FROM clientes WHERE id = ?', [id]);
@@ -191,7 +189,7 @@ export default function ClientesScreen() {
         <Input
           placeholder="Buscar por nombre o email"
           value={searchQuery}
-          onChangeText={setSearchQuery}
+          onChange={setSearchQuery}
           returnKeyType="search"
           leftIcon={<Ionicons name="search" size={18} color={t.colors.textSubtle} />}
           rightIcon={
@@ -215,7 +213,10 @@ export default function ClientesScreen() {
           renderItem={null}
           keyExtractor={() => 'empty'}
           contentContainerStyle={styles.listEmpty}
-          refreshControl={<RefreshControl refreshing={isLoading} onRefresh={loadClientes} />}
+          keyboardShouldPersistTaps="handled"
+          refreshControl={
+            <RefreshControl refreshing={isLoading} onRefresh={loadClientes} tintColor={t.colors.primary} />
+          }
           ListEmptyComponent={
             <EmptyState
               icon={searchQuery ? 'search-outline' : 'people-outline'}
@@ -248,6 +249,7 @@ export default function ClientesScreen() {
           renderItem={renderItem}
           keyExtractor={(item) => item.id}
           contentContainerStyle={styles.listContent}
+          keyboardShouldPersistTaps="handled"
           refreshControl={
             <RefreshControl refreshing={isLoading} onRefresh={loadClientes} tintColor={t.colors.primary} />
           }

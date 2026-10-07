@@ -15,14 +15,17 @@
  */
 
 import React, { useMemo, useState } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, LayoutChangeEvent } from 'react-native';
+import { View, Text, StyleSheet, TouchableOpacity, LayoutChangeEvent, Platform } from 'react-native';
 import { CartesianChart, Line, Bar, useChartPressState } from 'victory-native';
-import { Canvas, Path, matchFont, Group, Skia } from '@shopify/react-native-skia';
+import { Canvas, Path, matchFont, Skia } from '@shopify/react-native-skia';
 import { useAnimatedReaction, runOnJS } from 'react-native-reanimated';
 import { CHART_CONFIG } from '@/constants';
 
-const AXIS_FONT = matchFont({ fontFamily: 'System', fontSize: 10, fontWeight: '500' });
-const LABEL_FONT = matchFont({ fontFamily: 'System', fontSize: 9, fontWeight: '600' });
+// 'System' no existe en el font manager de Android: Skia devolvería un typeface
+// vacío y los ejes/etiquetas no se dibujarían.
+const FONT_FAMILY = Platform.select({ ios: 'Helvetica', default: 'sans-serif' });
+const AXIS_FONT = matchFont({ fontFamily: FONT_FAMILY, fontSize: 10, fontWeight: '500' });
+const LABEL_FONT = matchFont({ fontFamily: FONT_FAMILY, fontSize: 9, fontWeight: '600' });
 
 export interface Serie {
   key: string;

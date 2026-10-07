@@ -3,17 +3,24 @@
  * Offline-first: todo vive en SQLite local, el backup es un snapshot en JSON.
  *
  * Formato: { version, exportDate, app, data: { <tabla>: rows[] } }
- * Se exportan filas crudas (snake_case) para que el import sea un INSERT OR REPLACE
- * sin necesidad de mapear nombres de campo.
+ * Se exportan filas crudas (snake_case; las columnas JSON quedan como string)
+ * para que el import sea un upsert sin necesidad de mapear nombres de campo.
  */
 
 import { File, Directory, Paths } from 'expo-file-system';
 import * as Sharing from 'expo-sharing';
 import * as DocumentPicker from 'expo-document-picker';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { getDatabase, runTransaction } from '@/db/database';
+import type { Scalar } from '@op-engineering/op-sqlite';
+import { getDatabase, runTransaction, ensureSeedData } from '@/db/database';
 import { DATABASE_VERSION } from '@/db/schema';
 import { STORAGE_KEYS } from '@/constants';
+import {
+  useClientesStore,
+  useProgresoStore,
+  useRutinasStore,
+  useEntrenamientosStore,
+} from '@/stores';
 
 export const BACKUP_VERSION = 1;
 
@@ -63,38 +70,41 @@ function serialize(backup: BackupFile): string {
   return JSON.stringify(backup, null, 2);
 }
 
+function timestamp(): string {
+  return new Date().toISOString().slice(0, 19).replace(/[:T]/g, '-');
+}
+
+function writeJsonFile(file: File, json: string) {
+  file.create({ overwrite: true });
+  file.write(json);
+}
+
 /** Guarda el backup en el directorio de documento del dispositivo. Devuelve el path. */
 export function saveBackupFile(): { uri: string; bytes: number } {
-  const backup = collectBackup();
-  const json = serialize(backup);
-  const stamp = new Date().toISOString().slice(0, 19).replace(/[:T]/g, '-');
-  const file = new File(Paths.document, `personaltrainer-backup-${stamp}.json`);
-  if (file.exists) file.delete();
-  file.create();
-  file.write(json);
-  return { uri: file.uri, bytes: json.length };
+  const json = serialize(collectBackup());
+  const file = new File(Paths.document, `personaltrainer-backup-${timestamp()}.json`);
+  writeJsonFile(file, json);
+  return { uri: file.uri, bytes: file.size };
 }
 
 /** Guarda el backup en caché y abre el share sheet para enviarlo (WhatsApp, Drive, mail...). */
-export async function exportAndShare(): Promise<{ uri: string; total: number }> {
+export async function exportAndShare(): Promise<{ uri: string; total: number; shared: boolean }> {
   const backup = collectBackup();
   const json = serialize(backup);
-  const stamp = new Date().toISOString().slice(0, 19).replace(/[:T]/g, '-');
-  const file = new File(Paths.cache, `personaltrainer-backup-${stamp}.json`);
-  if (file.exists) file.delete();
-  file.create();
-  file.write(json);
+  const file = new File(Paths.cache, `personaltrainer-backup-${timestamp()}.json`);
+  writeJsonFile(file, json);
 
   const total = Object.values(backup.conteos).reduce((a, b) => a + b, 0);
 
-  if (await Sharing.isAvailableAsync()) {
-    await Sharing.shareAsync(file.uri, {
-      mimeType: 'application/json',
-      dialogTitle: 'Exportar datos',
-      UTI: 'public.json' });
+  if (!(await Sharing.isAvailableAsync())) {
+    return { uri: file.uri, total, shared: false };
   }
+  await Sharing.shareAsync(file.uri, {
+    mimeType: 'application/json',
+    dialogTitle: 'Exportar datos',
+    UTI: 'public.json' });
 
-  return { uri: file.uri, total };
+  return { uri: file.uri, total, shared: true };
 }
 
 // ============================================
@@ -111,13 +121,11 @@ function ensureAutoDir(): Directory {
 /** Backup automático: guarda un snapshot y conserva solo los últimos N. */
 export function runAutoBackup(keep = 7): string | null {
   try {
-    const backup = collectBackup();
-    const json = serialize(backup);
-    const stamp = new Date().toISOString().slice(0, 19).replace(/[:T]/g, '-');
+    const json = serialize(collectBackup());
+    const stamp = timestamp();
     const dir = ensureAutoDir();
     const file = new File(dir, `auto-${stamp}.json`);
-    file.create();
-    file.write(json);
+    writeJsonFile(file, json);
 
     // Limpieza: mantener solo los `keep` más recientes
     const archivos = dir
@@ -168,51 +176,81 @@ export interface ImportResult {
   error?: string;
 }
 
-/** Inserta las filas del backup. `replace` borra todo antes (modo Restaurar). */
+function tableColumns(table: TableName): Set<string> {
+  const info = getDatabase().executeSync(`PRAGMA table_info(${table})`).rows as { name?: unknown }[];
+  return new Set(info.map((c) => String(c.name)));
+}
+
+function toScalar(value: unknown): Scalar {
+  if (value === undefined || value === null) return null;
+  if (typeof value === 'boolean') return value ? 1 : 0;
+  if (typeof value === 'number' || typeof value === 'string') return value;
+  // Columnas JSON editadas a mano como objeto/array: se guardan como texto.
+  return JSON.stringify(value);
+}
+
+/**
+ * Inserta las filas del backup. `replace` borra todo antes (modo Restaurar);
+ * `merge` actualiza por id sin borrar lo que no esté en el archivo.
+ *
+ * Se usa `ON CONFLICT(id) DO UPDATE` y no `INSERT OR REPLACE`: REPLACE borra la
+ * fila existente, lo que con `foreign_keys = ON` dispara los `ON DELETE CASCADE`
+ * y en modo merge eliminaría fichas/check-ins/rutinas locales del cliente.
+ */
 export function importBackup(backup: BackupFile, modo: 'replace' | 'merge' = 'replace'): ImportResult {
-  if (!backup || backup.version !== BACKUP_VERSION) {
+  if (!backup || typeof backup !== 'object' || backup.version !== BACKUP_VERSION) {
     return { ok: false, modo, conteos: {}, error: `Versión de backup no soportada (${backup?.version})` };
   }
-  if (!backup.data) {
+  if (!backup.data || typeof backup.data !== 'object') {
     return { ok: false, modo, conteos: {}, error: 'El archivo no contiene datos' };
   }
 
-  const db = getDatabase();
   const conteos: Record<string, number> = {};
 
   try {
     runTransaction((tx) => {
       if (modo === 'replace') {
-        // Orden inverso para no violar FKs
+        // Orden inverso (hijas antes que padres) para no violar FKs
         for (const table of [...TABLES].reverse()) {
           tx.executeSync(`DELETE FROM ${table}`);
         }
       }
 
+      // TABLES está en orden padres → hijas, así las FKs ya existen al insertar.
       for (const table of TABLES) {
         const rows = backup.data[table];
         if (!Array.isArray(rows)) {
           conteos[table] = 0;
           continue;
         }
+        const permitidas = tableColumns(table);
         let inserted = 0;
         for (const row of rows) {
-          const cols = Object.keys(row);
+          if (!row || typeof row !== 'object' || row.id == null) continue;
+          // Solo columnas reales de la tabla: evita SQL inyectado vía nombres de clave.
+          const cols = Object.keys(row).filter((c) => permitidas.has(c));
           if (cols.length === 0) continue;
           const placeholders = cols.map(() => '?').join(', ');
-          tx.executeSync(
-            `INSERT OR REPLACE INTO ${table} (${cols.join(', ')}) VALUES (${placeholders})`,
-            cols.map((c) => row[c])
-          );
+          const updates = cols.filter((c) => c !== 'id').map((c) => `${c} = excluded.${c}`);
+          const onConflict = updates.length > 0 ? `DO UPDATE SET ${updates.join(', ')}` : 'DO NOTHING';
+          try {
+            tx.executeSync(
+              `INSERT INTO ${table} (${cols.join(', ')}) VALUES (${placeholders}) ON CONFLICT(id) ${onConflict}`,
+              cols.map((c) => toScalar(row[c]))
+            );
+          } catch (e: any) {
+            throw new Error(`${table} (id ${String(row.id)}): ${e?.message ?? e}`);
+          }
           inserted++;
         }
         conteos[table] = inserted;
       }
     });
   } catch (e: any) {
-    return { ok: false, modo, conteos, error: e?.message || 'Error al importar' };
+    return { ok: false, modo, conteos: {}, error: e?.message || 'Error al importar' };
   }
 
+  ensureSeedData();
   return { ok: true, modo, conteos };
 }
 
@@ -229,7 +267,15 @@ export async function pickAndImport(
   }
 
   const file = new File(picked.assets[0].uri);
-  const texto = await file.text();
+  let texto: string;
+  try {
+    texto = await file.text();
+  } finally {
+    // Es la copia en caché del picker: no hace falta conservarla.
+    try {
+      if (file.exists) file.delete();
+    } catch {}
+  }
 
   let parsed: BackupFile;
   try {
@@ -244,12 +290,48 @@ export async function pickAndImport(
 // ============================================
 // CLEAR
 // ============================================
+/** Borra todos los datos del usuario y re-siembra el catálogo base de ejercicios. */
 export function clearAllData(): void {
-  const db = getDatabase();
   runTransaction((tx) => {
     for (const table of [...TABLES].reverse()) {
       tx.executeSync(`DELETE FROM ${table}`);
     }
+  });
+  ensureSeedData();
+}
+
+// ============================================
+// SINCRONIZAR STORES
+// ============================================
+/**
+ * Tras limpiar o importar, descarta las cachés de Zustand (algunas persistidas
+ * en AsyncStorage) y recarga la lista de clientes desde SQLite, para que
+ * ninguna pantalla muestre datos viejos.
+ */
+export function resyncStoresFromDatabase(): void {
+  useProgresoStore.setState({ fichas: {}, checkins: {}, metas: {} });
+  useRutinasStore.setState({ ejercicios: [], rutinasPorCliente: {}, rutinaActual: null });
+  useEntrenamientosStore.setState({ entrenamientos: {}, entrenamientoActivo: null });
+
+  const rows = getDatabase().executeSync('SELECT * FROM clientes ORDER BY actualizado_en DESC').rows as any[];
+  const clientes = rows.map((row) => ({
+    id: row.id,
+    nombre: row.nombre,
+    apellido: row.apellido,
+    email: row.email ?? undefined,
+    telefono: row.telefono ?? undefined,
+    fechaNacimiento: row.fecha_nacimiento,
+    sexo: row.sexo,
+    altura: Number(row.altura),
+    fotoUri: row.foto_uri ?? undefined,
+    creadoEn: row.creado_en,
+    actualizadoEn: row.actualizado_en,
+  }));
+  const { selectedClienteId } = useClientesStore.getState();
+  useClientesStore.setState({
+    clientes,
+    searchQuery: '',
+    selectedClienteId: clientes.some((c) => c.id === selectedClienteId) ? selectedClienteId : null,
   });
 }
 
@@ -258,7 +340,7 @@ export function getCounts(): Record<string, number> {
   const conteos: Record<string, number> = {};
   for (const table of TABLES) {
     const r = db.executeSync(`SELECT COUNT(*) as n FROM ${table}`);
-    conteos[table] = (r.rows[0] as any)?.n ?? 0;
+    conteos[table] = Number((r.rows[0] as any)?.n ?? 0) || 0;
   }
   return conteos;
 }

@@ -2,13 +2,13 @@
  * Progreso Screen — Dashboard con gráficos reales (victory-native + Skia)
  */
 
-import React, { useMemo, useState } from 'react';
-import { View, Text, ScrollView, StyleSheet, TouchableOpacity, Dimensions, Image } from 'react-native';
-import { router } from 'expo-router';
+import React, { useCallback, useMemo, useState } from 'react';
+import { View, Text, ScrollView, StyleSheet, TouchableOpacity, Image } from 'react-native';
+import { router, useFocusEffect } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useTheme } from '@/hooks/useTheme';
-import { useClientesStore, useProgresoStore, useRutinasStore, useEntrenamientosStore } from '@/stores';
+import { useClientesStore, useProgresoStore } from '@/stores';
 import {
   Button,
   Card,
@@ -22,16 +22,18 @@ import {
 } from '@/components/ui';
 import { LineChart, BarChart, RadarChart, Heatmap } from '@/components/charts';
 import { useMetas } from '@/hooks/useMetas';
-import { formatDate, formatRelativeTime } from '@/utils/helpers';
+import { formatDate, formatRelativeTime, createEmptyPerimetros, createEmptyFotos } from '@/utils/helpers';
 import {
   volumenPorSemana,
   mejores1RM,
   evolucion1RM,
-  mapaEjerciciosRutina,
   resumenEntrenamientos,
   normalizarPerimetros } from '@/utils/metrics';
+import { getDatabase } from '@/db/database';
+import { leerRutinas } from '@/services/rutinas';
 import { HEATMAP_COLORS, CHART_CONFIG } from '@/constants';
 import type { Theme } from '@/constants/theme';
+import type { CheckinSemanal, EntrenamientoRealizado, FichaInicial, FotosProgreso, Perimetros } from '@/types';
 
 const TABS = [
   { key: 'antropometria', label: 'Antrop.', icon: 'body-outline' },
@@ -68,46 +70,214 @@ const RANGOS: { key: AnguloFoto; label: string }[] = [
   { key: 'posterior', label: 'Posterior' },
 ];
 
+// Referencia estable: sin esto el `?? {}` crearía un objeto nuevo en cada render
+// y rompería la memoización de los useMemo siguientes.
+const SIN_PERIMETROS: Record<string, any> = {};
+
+type Row = any;
+
+interface DatosProgreso {
+  cliente: { id: string; nombre: string; apellido: string } | null;
+  ficha: FichaInicial | null;
+  checkins: CheckinSemanal[];
+  entrenamientos: EntrenamientoRealizado[];
+  nombresRutina: Record<string, string>;
+}
+
+const SIN_DATOS: DatosProgreso = { cliente: null, ficha: null, checkins: [], entrenamientos: [], nombresRutina: {} };
+
+const numeroOpcional = (v: unknown): number | undefined => {
+  const n = typeof v === 'number' ? v : parseFloat(String(v ?? ''));
+  return Number.isFinite(n) ? n : undefined;
+};
+
+const parseJSON = (raw: unknown): unknown => {
+  if (typeof raw !== 'string' || !raw) return null;
+  try {
+    return JSON.parse(raw);
+  } catch {
+    return null;
+  }
+};
+
+const parsePerimetros = (raw: unknown): Perimetros => {
+  const data = (parseJSON(raw) ?? {}) as Record<string, unknown>;
+  const base = createEmptyPerimetros();
+  for (const k of Object.keys(base) as (keyof Perimetros)[]) base[k] = numeroOpcional(data[k]) ?? 0;
+  return base;
+};
+
+const parseFotos = (raw: unknown): FotosProgreso => {
+  const data = (parseJSON(raw) ?? {}) as Record<string, unknown>;
+  const base = createEmptyFotos();
+  for (const k of Object.keys(base) as (keyof FotosProgreso)[]) base[k] = typeof data[k] === 'string' ? (data[k] as string) : '';
+  return base;
+};
+
+const rating = (v: unknown) => Math.min(5, Math.max(1, Math.round(Number(v) || 3))) as 1 | 2 | 3 | 4 | 5;
+
+/** Todo lo que muestra el dashboard, leído de SQLite (fuente de verdad). */
+function leerDatosProgreso(clienteId: string | null): DatosProgreso {
+  if (!clienteId) return SIN_DATOS;
+  try {
+    const db = getDatabase();
+    const c = db.executeSync('SELECT id, nombre, apellido FROM clientes WHERE id = ?', [clienteId]).rows[0] as Row | undefined;
+    if (!c) return SIN_DATOS;
+
+    const f = db.executeSync(
+      'SELECT * FROM fichas_iniciales WHERE cliente_id = ? ORDER BY creado_en DESC LIMIT 1',
+      [clienteId]
+    ).rows[0] as Row | undefined;
+    const checkinRows = db.executeSync(
+      'SELECT * FROM checkins_semanales WHERE cliente_id = ? ORDER BY semana ASC, creado_en ASC',
+      [clienteId]
+    ).rows as Row[];
+    const entrenamientoRows = db.executeSync(
+      'SELECT * FROM entrenamientos_realizados WHERE cliente_id = ? ORDER BY fecha ASC',
+      [clienteId]
+    ).rows as Row[];
+
+    const nombresRutina: Record<string, string> = {};
+    for (const r of leerRutinas(clienteId)) {
+      for (const dia of r.dias) {
+        for (const ej of dia.ejercicios) nombresRutina[ej.id] = ej.nombre;
+      }
+    }
+
+    return {
+      cliente: { id: c.id, nombre: c.nombre ?? '', apellido: c.apellido ?? '' },
+      ficha: f
+        ? {
+            id: f.id,
+            clienteId: f.cliente_id,
+            fecha: f.fecha,
+            peso: Number(f.peso) || 0,
+            grasaCorporal: numeroOpcional(f.grasa_corporal),
+            musculatura: numeroOpcional(f.musculatura),
+            perimetros: parsePerimetros(f.perimetros),
+            fotos: parseFotos(f.fotos),
+            observaciones: f.observaciones ?? '',
+            lesionLimitaciones: f.lesion_limitaciones ?? '',
+            creadoEn: f.creado_en,
+          }
+        : null,
+      checkins: checkinRows.map((r) => ({
+        id: r.id,
+        clienteId: r.cliente_id,
+        semana: Number(r.semana) || 0,
+        fecha: r.fecha,
+        peso: Number(r.peso) || 0,
+        grasaCorporal: numeroOpcional(r.grasa_corporal),
+        musculatura: numeroOpcional(r.musculatura),
+        perimetros: parsePerimetros(r.perimetros),
+        fotos: parseFotos(r.fotos),
+        energia: rating(r.energia),
+        sueno: rating(r.sueno),
+        estres: rating(r.estres),
+        adherencia: rating(r.adherencia),
+        notas: r.notas ?? '',
+        creadoEn: r.creado_en,
+      })),
+      entrenamientos: entrenamientoRows.map((r) => {
+        const ejercicios = parseJSON(r.ejercicios);
+        return {
+          id: r.id,
+          clienteId: r.cliente_id,
+          rutinaSemanalId: r.rutina_semanal_id,
+          diaRutinaId: r.dia_rutina_id,
+          fecha: String(r.fecha ?? ''),
+          duracionMin: Number(r.duracion_min) || 0,
+          ejercicios: (Array.isArray(ejercicios) ? ejercicios : []).map((ej: any) => ({
+            ejercicioRutinaId: String(ej?.ejercicioRutinaId ?? ''),
+            series: (Array.isArray(ej?.series) ? ej.series : []).map((s: any) => ({
+              numero: Number(s?.numero) || 0,
+              peso: Number(s?.peso) || 0,
+              repeticiones: Number(s?.repeticiones) || 0,
+              rpe: Number(s?.rpe) || 0,
+              completada: !!s?.completada,
+            })),
+          })),
+          rpeGlobal: numeroOpcional(r.rpe_global) as EntrenamientoRealizado['rpeGlobal'],
+          notas: r.notas ?? '',
+        };
+      }),
+      nombresRutina,
+    };
+  } catch (error) {
+    console.error('Error leyendo progreso:', error);
+    return SIN_DATOS;
+  }
+}
+
+function calcularDeltas(ficha: FichaInicial | null, latest: CheckinSemanal | null) {
+  if (!ficha || !latest) return null;
+  return {
+    peso: Number((latest.peso - ficha.peso).toFixed(1)),
+    grasaCorporal:
+      latest.grasaCorporal != null && ficha.grasaCorporal != null
+        ? Number((latest.grasaCorporal - ficha.grasaCorporal).toFixed(1))
+        : undefined,
+    musculatura:
+      latest.musculatura != null && ficha.musculatura != null
+        ? Number((latest.musculatura - ficha.musculatura).toFixed(1))
+        : undefined,
+  };
+}
+
 export default function ProgresoScreen() {
   const t = useTheme();
   const styles = useMemo(() => createStyles(t), [t]);
   const insets = useSafeAreaInsets();
-  const { selectedClienteId, getSelectedCliente } = useClientesStore();
-  const { getFicha, getLatestCheckin, getCheckins, calculateDeltas, getActiveMetas } = useProgresoStore();
-  const { ejercicios, rutinasPorCliente } = useRutinasStore();
-  const { getEntrenamientos } = useEntrenamientosStore();
+  const selectedClienteId = useClientesStore((s) => s.selectedClienteId);
 
   const [activeTab, setActiveTab] = useState<TabKey>('antropometria');
   const [angulo, setAngulo] = useState<AnguloFoto>('frontal');
   const [compararFotos, setCompararFotos] = useState(false);
   const [ejercicio1RM, setEjercicio1RM] = useState<string>('');
 
-  const cliente = getSelectedCliente();
+  // ============================================
+  // Datos (síncronos desde SQLite; se releen al enfocar la pestaña)
+  // ============================================
+  const [datos, setDatos] = useState<DatosProgreso>(() => leerDatosProgreso(selectedClienteId));
+  const [clienteCargado, setClienteCargado] = useState(selectedClienteId);
+  if (clienteCargado !== selectedClienteId) {
+    setClienteCargado(selectedClienteId);
+    setDatos(leerDatosProgreso(selectedClienteId));
+    setEjercicio1RM('');
+  }
 
-  // ============================================
-  // Datos (derivados, síncronos desde el store en memoria / SQLite)
-  // ============================================
-  const ficha = selectedClienteId ? getFicha(selectedClienteId) : null;
-  const latestCheckin = selectedClienteId ? getLatestCheckin(selectedClienteId) : null;
-  const checkinsRaw = selectedClienteId ? getCheckins(selectedClienteId) : [];
-  const checkins = useMemo(
-    () => checkinsRaw.slice().sort((a, b) => a.semana - b.semana),
-    [checkinsRaw]
+  const { conProgreso: metas, reload: recargarMetas } = useMetas(selectedClienteId);
+
+  useFocusEffect(
+    useCallback(() => {
+      const nuevos = leerDatosProgreso(selectedClienteId);
+      if (selectedClienteId && nuevos.cliente) {
+        const id = selectedClienteId;
+        useProgresoStore.setState((s) => {
+          const fichas = { ...s.fichas };
+          if (nuevos.ficha) fichas[id] = nuevos.ficha;
+          else delete fichas[id];
+          return { fichas, checkins: { ...s.checkins, [id]: nuevos.checkins } };
+        });
+      }
+      setDatos(nuevos);
+      recargarMetas();
+    }, [selectedClienteId, recargarMetas])
   );
-  const deltas = selectedClienteId ? calculateDeltas(selectedClienteId) : null;
-  const { conProgreso: metas } = useMetas(selectedClienteId);
+
+  const { cliente, ficha, checkins, entrenamientos, nombresRutina } = datos;
+  const latestCheckin = checkins.length > 0 ? checkins[checkins.length - 1] : null;
+  const deltas = calcularDeltas(ficha, latestCheckin);
   const activas = metas.filter((m) => m.meta.estado === 'activa').length;
-  const entrenamientos = selectedClienteId ? getEntrenamientos(selectedClienteId) : [];
-  const rutinas = selectedClienteId ? rutinasPorCliente[selectedClienteId] ?? [] : [];
 
   // Incluimos la ficha como punto 0 para que las líneas tengan origen
   const seriePeso = useMemo(() => {
-    const puntos: Record<string, number>[] = [];
+    const puntos: Record<string, number | null>[] = [];
     if (ficha) puntos.push({ semana: 0, peso: ficha.peso, grasa: ficha.grasaCorporal ?? null, musculo: ficha.musculatura ?? null });
     for (const c of checkins) {
       puntos.push({ semana: c.semana, peso: c.peso, grasa: c.grasaCorporal ?? null, musculo: c.musculatura ?? null });
     }
-    return puntos;
+    return puntos as Record<string, any>[];
   }, [ficha, checkins]);
 
   const serieComposicion = useMemo(
@@ -118,9 +288,6 @@ export default function ProgresoScreen() {
     [seriePeso]
   );
 
-  // Referencia estable: sin esto el `?? {}` crearía un objeto nuevo en cada render
-  // y rompería la memoización de los useMemo siguientes.
-  const SIN_PERIMETROS: Record<string, any> = {};
   const perimetrosFicha = useMemo(
     () => (ficha ? (ficha.perimetros as unknown as Record<string, any>) : SIN_PERIMETROS),
     [ficha]
@@ -145,7 +312,6 @@ export default function ProgresoScreen() {
 
   // ---- Fuerza ----
   const volumenSemanal = useMemo(() => volumenPorSemana(entrenamientos), [entrenamientos]);
-  const nombresRutina = useMemo(() => mapaEjerciciosRutina(rutinas as any, ejercicios as any), [rutinas, ejercicios]);
   const top1RM = useMemo(() => mejores1RM(entrenamientos, nombresRutina), [entrenamientos, nombresRutina]);
   const evolucion = useMemo(
     () => (ejercicio1RM ? evolucion1RM(entrenamientos, nombresRutina, ejercicio1RM) : []),
@@ -161,32 +327,34 @@ export default function ProgresoScreen() {
   }, [checkins]);
 
   // ---- Fotos ----
-  const fotosFicha = (ficha?.fotos ?? {}) as Record<string, string>;
-  const fotosCheckin = ((latestCheckin?.fotos ?? {}) as Record<string, string>);
+  const fotosFicha: FotosProgreso = ficha?.fotos ?? createEmptyFotos();
   const tieneFotosFicha = RANGOS.some((r) => !!fotosFicha[r.key]);
+  // Las fotos son opcionales: por ángulo se usa el check-in más reciente que tenga foto.
+  const fotosRecientes = useMemo(() => {
+    const res: Record<AnguloFoto, { uri: string; semana: number } | null> = { frontal: null, lateral: null, posterior: null };
+    for (let i = checkins.length - 1; i >= 0; i--) {
+      for (const r of RANGOS) {
+        const uri = checkins[i].fotos[r.key];
+        if (!res[r.key] && uri) res[r.key] = { uri, semana: checkins[i].semana };
+      }
+    }
+    return res;
+  }, [checkins]);
 
-  if (!selectedClienteId) {
+  if (!selectedClienteId || !cliente) {
     return (
-      <View style={[styles.emptyContainer, { backgroundColor: t.colors.bg }]}>
+      <View style={[styles.emptyContainer, { backgroundColor: t.colors.bg, paddingTop: insets.top + 32 }]}>
         <Ionicons name="people-outline" size={64} color={t.colors.textSubtle} />
         <Text style={[t.typography.heading, { color: t.colors.text }]}>Selecciona un cliente</Text>
         <Text style={[t.typography.small, { color: t.colors.textMuted, textAlign: 'center' }]}>
           Elegí un cliente desde la pestaña Clientes para ver su progreso
         </Text>
         <Button
-          onPress={() => router.push('/clientes')}
+          onPress={() => router.navigate('/clientes')}
           leftIcon={<Ionicons name="people" size={18} color={t.colors.onPrimary} />}
         >
           Ir a Clientes
         </Button>
-      </View>
-    );
-  }
-
-  if (!cliente) {
-    return (
-      <View style={[styles.loadingContainer, { backgroundColor: t.colors.bg }]}>
-        <Text style={[t.typography.body, { color: t.colors.textMuted }]}>Cargando…</Text>
       </View>
     );
   }
@@ -206,7 +374,7 @@ export default function ProgresoScreen() {
           },
         ]}
       >
-        <TouchableOpacity onPress={() => router.push('/clientes')} style={styles.clientSelector}>
+        <TouchableOpacity onPress={() => router.navigate('/clientes')} style={styles.clientSelector}>
           <Avatar name={`${cliente.nombre} ${cliente.apellido}`} size={44} />
           <View style={styles.clientInfo}>
             <Text style={[t.typography.heading, { color: t.colors.text }]} numberOfLines={1}>
@@ -233,6 +401,7 @@ export default function ProgresoScreen() {
       <ScrollView
         horizontal
         showsHorizontalScrollIndicator={false}
+        style={styles.statsScroll}
         contentContainerStyle={styles.statsContainer}
       >
         <StatTile
@@ -475,22 +644,20 @@ export default function ProgresoScreen() {
                 <Card style={styles.chartCard}>
                   <CardHeader title="Evolución de 1RM" subtitle="Epley · mejor marca por sesión" />
                   <CardContent>
-                    {top1RM.length > 1 && (
-                      <View style={styles.pickerWrap}>
-                        {top1RM.slice(0, 8).map((t) => {
-                          const activo = t.etiqueta === ejercicio1RM;
-                          return (
-                            <TouchableOpacity
-                              key={t.etiqueta}
-                              onPress={() => setEjercicio1RM(activo ? '' : t.etiqueta)}
-                              style={[styles.chip, activo && styles.chipActive]}
-                            >
-                              <Text style={[styles.chipText, activo && styles.chipTextActive]}>{t.etiqueta}</Text>
-                            </TouchableOpacity>
-                          );
-                        })}
-                      </View>
-                    )}
+                    <View style={styles.pickerWrap}>
+                      {top1RM.slice(0, 8).map((item) => {
+                        const activo = item.etiqueta === ejercicio1RM;
+                        return (
+                          <TouchableOpacity
+                            key={item.etiqueta}
+                            onPress={() => setEjercicio1RM(activo ? '' : item.etiqueta)}
+                            style={[styles.chip, activo && styles.chipActive]}
+                          >
+                            <Text style={[styles.chipText, activo && styles.chipTextActive]}>{item.etiqueta}</Text>
+                          </TouchableOpacity>
+                        );
+                      })}
+                    </View>
                     {ejercicio1RM ? (
                       <LineChart
                         data={evolucion as any}
@@ -507,18 +674,18 @@ export default function ProgresoScreen() {
                 <Card style={styles.chartCard}>
                   <CardHeader title="Ranking de 1RM" subtitle="Marca estimada actual por ejercicio" />
                   <CardContent>
-                    {top1RM.slice(0, 10).map((t, i) => (
-                      <View key={t.etiqueta} style={styles.rankRow}>
-                        <View style={[styles.rankBadge, { backgroundColor: i < 3 ? CHART_CONFIG.colors.primary : '#cbd5e1' }]}>
-                          <Text style={[styles.rankNum, { color: i < 3 ? '#fff' : '#475569' }]}>{i + 1}</Text>
+                    {top1RM.slice(0, 10).map((item, i) => (
+                      <View key={item.etiqueta} style={styles.rankRow}>
+                        <View style={[styles.rankBadge, { backgroundColor: i < 3 ? t.colors.primary : t.colors.surfaceAlt }]}>
+                          <Text style={[styles.rankNum, { color: i < 3 ? t.colors.onPrimary : t.colors.textMuted }]}>{i + 1}</Text>
                         </View>
                         <View style={styles.rankInfo}>
-                          <Text style={styles.rankNombre}>{t.etiqueta}</Text>
+                          <Text style={styles.rankNombre}>{item.etiqueta}</Text>
                           <Text style={styles.rankDetalle}>
-                            {t.peso} kg × {t.reps} reps · {formatDate(t.fecha)}
+                            {item.peso} kg × {item.reps} reps · {formatDate(item.fecha)}
                           </Text>
                         </View>
-                        <Text style={styles.rankValor}>{t.r1rm} kg</Text>
+                        <Text style={styles.rankValor}>{item.r1rm} kg</Text>
                       </View>
                     ))}
                   </CardContent>
@@ -533,19 +700,22 @@ export default function ProgresoScreen() {
         ====================================== */}
         {activeTab === 'fotos' && (
           <>
-            {tieneFotosFicha || RANGOS.some((r) => !!fotosCheckin[r.key]) ? (
+            {tieneFotosFicha || RANGOS.some((r) => !!fotosRecientes[r.key]) ? (
               <Card style={styles.chartCard}>
                 <CardHeader
                   title="Comparativa de fotos"
                   subtitle={compararFotos ? 'Ficha inicial vs. último check-in' : 'Último registro'}
                   action={
-                    <TouchableOpacity onPress={() => setCompararFotos((v) => !v)} style={styles.compararToggle}>
+                    <TouchableOpacity
+                      onPress={() => setCompararFotos((v) => !v)}
+                      style={[styles.compararToggle, compararFotos && { backgroundColor: t.colors.primary }]}
+                    >
                       <Ionicons
                         name={compararFotos ? 'layers' : 'layers-outline'}
                         size={14}
-                        color={compararFotos ? '#fff' : '#0ea5e9'}
+                        color={compararFotos ? t.colors.onPrimary : t.colors.primary}
                       />
-                      <Text style={[styles.compararToggleText, compararFotos && { color: '#fff' }]}>Comparar</Text>
+                      <Text style={[styles.compararToggleText, compararFotos && { color: t.colors.onPrimary }]}>Comparar</Text>
                     </TouchableOpacity>
                   }
                 />
@@ -562,24 +732,22 @@ export default function ProgresoScreen() {
                     ))}
                   </View>
 
-                  {compararFotos && fotosFicha[angulo] && fotosCheckin[angulo] ? (
+                  {compararFotos && fotosFicha[angulo] && fotosRecientes[angulo] ? (
                     <View style={styles.compararGrid}>
                       <View style={styles.compararCol}>
                         <Text style={styles.compararLabel}>Inicial</Text>
                         <Image source={{ uri: fotosFicha[angulo] }} style={styles.fotoComparada} resizeMode="cover" />
                       </View>
                       <View style={styles.compararCol}>
-                        <Text style={styles.compararLabel}>
-                          {latestCheckin ? `Semana ${latestCheckin.semana}` : 'Actual'}
-                        </Text>
-                        <Image source={{ uri: fotosCheckin[angulo] }} style={styles.fotoComparada} resizeMode="cover" />
+                        <Text style={styles.compararLabel}>Semana {fotosRecientes[angulo]?.semana}</Text>
+                        <Image source={{ uri: fotosRecientes[angulo]?.uri }} style={styles.fotoComparada} resizeMode="cover" />
                       </View>
                     </View>
                   ) : (
                     <View style={styles.fotoUnicaWrap}>
-                      {fotosCheckin[angulo] || fotosFicha[angulo] ? (
+                      {fotosRecientes[angulo]?.uri || fotosFicha[angulo] ? (
                         <Image
-                          source={{ uri: fotosCheckin[angulo] || fotosFicha[angulo] }}
+                          source={{ uri: fotosRecientes[angulo]?.uri || fotosFicha[angulo] }}
                           style={styles.fotoUnica}
                           resizeMode="contain"
                         />
@@ -600,15 +768,19 @@ export default function ProgresoScreen() {
                 titulo="Sin fotos de progreso"
                 sub="Añade fotos en la ficha inicial y en cada check-in"
                 action={
-                  ficha ? (
-                    <Button
-                      variant="primary"
-                      size="sm"
-                      onPress={() => router.push(`/clientes/${selectedClienteId}/checkin/nueva`)}
-                    >
-                      Añadir fotos
-                    </Button>
-                  ) : undefined
+                  <Button
+                    variant="primary"
+                    size="sm"
+                    onPress={() =>
+                      router.push(
+                        ficha
+                          ? `/clientes/${selectedClienteId}/checkin/nueva`
+                          : `/clientes/${selectedClienteId}/ficha/nueva`
+                      )
+                    }
+                  >
+                    {ficha ? 'Nuevo check-in con fotos' : 'Crear ficha inicial'}
+                  </Button>
                 }
               />
             )}
@@ -633,7 +805,7 @@ export default function ProgresoScreen() {
 
             {checkins.length > 0 && (
               <Card style={styles.chartCard}>
-                <CardHeader title="Handle de check-ins" subtitle="Energía / sueño / estrés / adherencia" />
+                <CardHeader title="Evolución de check-ins" subtitle="Energía / sueño / estrés / adherencia" />
                 <CardContent>
                   <LineChart
                     data={checkins.map((c: any) => ({
@@ -676,7 +848,7 @@ export default function ProgresoScreen() {
           <CardContent>
             {metas.length === 0 ? (
               <View style={styles.metasVacio}>
-                <Ionicons name="flag-outline" size={32} color="#94a3b8" />
+                <Ionicons name="flag-outline" size={32} color={t.colors.textSubtle} />
                 <Text style={styles.emptyChartSubtitle}>
                   Crea un objetivo medible (peso, % grasa, fuerza…) y el avance se calcula
                   automáticamente contra la última medición.
@@ -757,18 +929,6 @@ function unidadLegible(u: string): string {
   return u === 'dias' ? 'días' : u;
 }
 
-/** % de avance de una meta según el valor actual observado. */
-function progresoMeta(meta: any, valorActual?: number): number {
-  const inicio = Number(meta.valorInicial);
-  const objetivo = Number(meta.valorObjetivo);
-  const actual = valorActual ?? meta.valorActual ?? inicio;
-  if (!Number.isFinite(inicio) || !Number.isFinite(objetivo) || inicio === objetivo) {
-    return meta.estado === 'lograda' ? 100 : 0;
-  }
-  const pct = ((actual - inicio) / (objetivo - inicio)) * 100;
-  return Math.max(0, Math.min(100, pct));
-}
-
 function Vacio({
   icon,
   titulo,
@@ -831,7 +991,7 @@ const createStyles = (t: Theme) => StyleSheet.create({
     flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
     paddingHorizontal: 16, paddingVertical: 12, backgroundColor: t.colors.surface,
     borderBottomWidth: 1, borderBottomColor: t.colors.border },
-  clientSelector: { flexDirection: 'row', alignItems: 'center', gap: 12 },
+  clientSelector: { flex: 1, flexDirection: 'row', alignItems: 'center', gap: 12 },
   avatar: { width: 44, height: 44, borderRadius: 22, alignItems: 'center', justifyContent: 'center' },
   avatarText: { fontSize: 18, fontWeight: '600', color: t.colors.textMuted},
   clientInfo: { flex: 1 },
@@ -841,6 +1001,7 @@ const createStyles = (t: Theme) => StyleSheet.create({
   lastUpdateLabel: { fontSize: 11, color: t.colors.textSubtle},
   lastUpdateValue: { fontSize: 13, fontWeight: '500', color: t.colors.text},
 
+  statsScroll: { flexGrow: 0, flexShrink: 0 },
   statsContainer: { paddingHorizontal: 16, paddingVertical: 10, gap: 10 },
   statCard: {
     backgroundColor: t.colors.surface, borderRadius: 12, paddingVertical: 10, paddingHorizontal: 12,

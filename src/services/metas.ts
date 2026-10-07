@@ -6,7 +6,7 @@
  */
 
 import { getDatabase } from '@/db/database';
-import { generateId } from '@/utils/helpers';
+import { fechaLocalISO, generateId } from '@/utils/helpers';
 import type { Meta } from '@/types';
 import type { EstadoMeta, TipoMeta } from '@/db/schema';
 
@@ -79,7 +79,7 @@ export function guardarMeta(meta: Meta): void {
 
 /** Crea una meta nueva con valores por defecto sensatos. */
 export function nuevaMeta(clienteId: string, parcial: Partial<Meta> = {}): Meta {
-  const hoy = new Date().toISOString().slice(0, 10);
+  const hoy = fechaLocalISO();
   return {
     id: generateId(),
     clienteId,
@@ -225,5 +225,5 @@ export function unidadPorTipo(tipo: TipoMeta): Meta['unidad'] {
 function sumarMeses(iso: string, meses: number): string {
   const d = new Date(`${iso}T12:00:00`);
   d.setMonth(d.getMonth() + meses);
-  return d.toISOString().slice(0, 10);
+  return fechaLocalISO(d);
 }

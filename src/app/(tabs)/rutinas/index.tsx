@@ -7,16 +7,16 @@
  * metadatos, y color por grupo muscular.
  */
 
-import React, { useEffect, useCallback, useState, useMemo } from 'react';
+import React, { useCallback, useState, useMemo } from 'react';
 import { View, Text, ScrollView, StyleSheet, Pressable, Alert } from 'react-native';
-import { router } from 'expo-router';
+import { router, useFocusEffect } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useTheme } from '@/hooks/useTheme';
 import { useClientesStore, useRutinasStore, useUIStore } from '@/stores';
 import { Button, Card, CardHeader, CardContent, Chip, Badge, EmptyState, Avatar } from '@/components/ui';
-import { getProgresionLabel } from '@/utils/helpers';
-import { getDatabase } from '@/db/database';
+import { getGrupoMuscularLabel, getProgresionLabel } from '@/utils/helpers';
+import { leerRutinas } from '@/services/rutinas';
 import { useGuardFicha } from '@/hooks/useGuardFicha';
 import { GRUPOS_MUSCULARES } from '@/constants';
 
@@ -27,9 +27,10 @@ export default function RutinasScreen() {
   const t = useTheme();
   const insets = useSafeAreaInsets();
   const { selectedClienteId, getSelectedCliente } = useClientesStore();
-  const { getRutinasByCliente } = useRutinasStore();
+  const { getRutinasByCliente, setRutinasForCliente } = useRutinasStore();
   const addToast = useUIStore((s) => s.addToast);
-  const [selectedWeek, setSelectedWeek] = useState<number>(1);
+  // orden 1 = lunes … 7 = domingo; arranca en el día de hoy.
+  const [selectedOrden, setSelectedOrden] = useState<number>(() => new Date().getDay() || 7);
   const { tieneFicha } = useGuardFicha(selectedClienteId, false);
 
   const cliente = getSelectedCliente();
@@ -41,36 +42,21 @@ export default function RutinasScreen() {
     return rutinas.find((r) => r.mesociclo === max);
   }, [rutinas]);
 
-  const weeksInMesociclo = activeRutina ? activeRutina.semanaFin - activeRutina.semanaInicio + 1 : 0;
+  const diasRutina = useMemo(
+    () => (activeRutina ? [...activeRutina.dias].sort((a, b) => a.orden - b.orden) : []),
+    [activeRutina]
+  );
 
-  const semanaSeleccionada = Math.min(Math.max(selectedWeek, 1), Math.max(weeksInMesociclo, 1));
+  const diaActual = useMemo(
+    () => diasRutina.find((d) => d.orden === selectedOrden) ?? diasRutina[0] ?? null,
+    [diasRutina, selectedOrden]
+  );
 
-  const diaActual = useMemo(() => {
-    if (!activeRutina) return null;
-    if (semanaSeleccionada < activeRutina.semanaInicio || semanaSeleccionada > activeRutina.semanaFin) {
-      return null;
-    }
-    return (
-      activeRutina.dias.find((d) => d.orden === semanaSeleccionada - activeRutina.semanaInicio + 1) ?? null
-    );
-  }, [activeRutina, semanaSeleccionada]);
-
-  const loadRutinas = useCallback(async () => {
-    if (!selectedClienteId) return;
-    try {
-      const db = getDatabase();
-      db.executeSync(
-        'SELECT * FROM rutinas_semanales WHERE cliente_id = ? ORDER BY mesociclo DESC, semana_inicio DESC',
-        [selectedClienteId]
-      );
-    } catch (error) {
-      console.error('Error loading rutinas:', error);
-    }
-  }, [selectedClienteId]);
-
-  useEffect(() => {
-    loadRutinas();
-  }, [loadRutinas]);
+  useFocusEffect(
+    useCallback(() => {
+      if (selectedClienteId) setRutinasForCliente(selectedClienteId, leerRutinas(selectedClienteId));
+    }, [selectedClienteId, setRutinasForCliente])
+  );
 
   // ------------------------------------------------------------------ Estados vacíos
   if (!selectedClienteId) {
@@ -80,7 +66,7 @@ export default function RutinasScreen() {
           icon="people-outline"
           title="Elegí un cliente"
           subtitle="Las rutinas se prescriben por cliente. Abrí la pestaña Clientes y seleccioná uno."
-          action={<Button onPress={() => router.push('/clientes')}>Ir a Clientes</Button>}
+          action={<Button onPress={() => router.navigate('/clientes')}>Ir a Clientes</Button>}
         />
       </View>
     );
@@ -101,9 +87,18 @@ export default function RutinasScreen() {
         <Text style={[t.typography.display, { color: t.colors.text }]}>Rutinas</Text>
         <Text style={[t.typography.small, { color: t.colors.textMuted, marginTop: 2 }]} numberOfLines={1}>
           {cliente ? `${cliente.nombre} ${cliente.apellido}` : '—'}
-          {activeRutina ? ` · Mesociclo ${activeRutina.mesociclo}` : ''}
+          {activeRutina ? ` · Mesociclo ${activeRutina.mesociclo} · S${activeRutina.semanaInicio}–${activeRutina.semanaFin}` : ''}
         </Text>
       </View>
+      <Pressable
+        onPress={() => router.push('/rutinas/catalogo')}
+        hitSlop={8}
+        accessibilityRole="button"
+        accessibilityLabel="Catálogo de ejercicios"
+        style={[styles.iconBtn, { backgroundColor: t.colors.surfaceAlt }]}
+      >
+        <Ionicons name="library-outline" size={20} color={t.colors.text} />
+      </Pressable>
       <Button
         size="sm"
         onPress={() => router.push('/rutinas/nuevo')}
@@ -172,16 +167,15 @@ export default function RutinasScreen() {
           </Pressable>
         )}
 
-        {/* ------------------------------------------------ Selector de semana */}
-        {weeksInMesociclo > 0 && (
+        {/* ------------------------------------------------ Selector de día */}
+        {diasRutina.length > 0 && (
           <View style={styles.weekRow}>
-            {Array.from({ length: weeksInMesociclo }, (_, i) => i + 1).map((w) => {
-              const dia = activeRutina?.dias.find((d) => d.orden === w);
-              const activo = semanaSeleccionada === w;
+            {diasRutina.map((dia) => {
+              const activo = diaActual?.id === dia.id;
               return (
                 <Pressable
-                  key={w}
-                  onPress={() => setSelectedWeek(w)}
+                  key={dia.id}
+                  onPress={() => setSelectedOrden(dia.orden)}
                   accessibilityRole="tab"
                   accessibilityState={{ selected: activo }}
                   style={[
@@ -198,20 +192,14 @@ export default function RutinasScreen() {
                       { color: activo ? t.colors.onPrimary : t.colors.textSubtle },
                     ]}
                   >
-                    SEM {w}
+                    {dia.nombre.slice(0, 3).toUpperCase()}
                   </Text>
-                  <Text
-                    style={[
-                      t.typography.smallStrong,
-                      {
-                        color: activo ? t.colors.onPrimary : t.colors.text,
-                        marginTop: 1,
-                      },
-                    ]}
-                    numberOfLines={1}
-                  >
-                    {dia?.nombre ?? '—'}
-                  </Text>
+                  <Ionicons
+                    name={dia.esDescanso ? 'moon-outline' : 'barbell-outline'}
+                    size={14}
+                    color={activo ? t.colors.onPrimary : dia.esDescanso ? t.colors.textSubtle : t.colors.text}
+                    style={{ marginTop: 2 }}
+                  />
                 </Pressable>
               );
             })}
@@ -229,7 +217,7 @@ export default function RutinasScreen() {
                   : `${diaActual.ejercicios.length} ejercicio${diaActual.ejercicios.length !== 1 ? 's' : ''}`
               }
               action={
-                !diaActual.esDescanso && activeRutina ? (
+                !diaActual.esDescanso && diaActual.ejercicios.length > 0 && activeRutina ? (
                   <Button
                     size="xs"
                     onPress={() => router.push(`/entrenamiento/${activeRutina.id}/${diaActual.id}`)}
@@ -292,7 +280,7 @@ export default function RutinasScreen() {
                         <View style={styles.ejercicioMeta}>
                           {ej.grupoMuscular ? (
                             <Text style={[t.typography.caption, { color: t.colors.textMuted }]}>
-                              {ej.grupoMuscular}
+                              {getGrupoMuscularLabel(ej.grupoMuscular)}
                             </Text>
                           ) : null}
                           {ej.progresion ? (
@@ -387,13 +375,14 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     padding: 12,
   },
-  weekRow: { flexDirection: 'row', gap: 8 },
+  iconBtn: { width: 36, height: 36, borderRadius: 18, alignItems: 'center', justifyContent: 'center' },
+  weekRow: { flexDirection: 'row', gap: 6 },
   weekCard: {
     flex: 1,
     minHeight: 52,
     borderRadius: 14,
     borderWidth: 1,
-    paddingHorizontal: 8,
+    paddingHorizontal: 2,
     paddingVertical: 8,
     justifyContent: 'center',
     alignItems: 'center',

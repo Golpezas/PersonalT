@@ -4,13 +4,20 @@
 
 import { format, parseISO, startOfWeek, endOfWeek, differenceInDays, differenceInWeeks, isValid } from 'date-fns';
 import { es } from 'date-fns/locale';
-import { v4 as uuidv4 } from 'uuid';
 import type { Perimetros, FotosProgreso, EjercicioRutina, ProgresionPlan } from '@/types';
 
 // ============================================
 // ID Generation
 // ============================================
-export const generateId = (): string => uuidv4();
+/**
+ * UUID v4. Hermes no expone `crypto`, así que el paquete `uuid` falla en el
+ * dispositivo; para IDs locales de SQLite alcanza con Math.random.
+ */
+export const generateId = (): string =>
+  'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, (c) => {
+    const r = (Math.random() * 16) | 0;
+    return (c === 'x' ? r : (r & 0x3) | 0x8).toString(16);
+  });
 
 export const generateShortId = (): string => {
   return Math.random().toString(36).substring(2, 10);
@@ -19,6 +26,13 @@ export const generateShortId = (): string => {
 // ============================================
 // Date Helpers
 // ============================================
+/** Fecha local "YYYY-MM-DD". `toISOString()` usa UTC y en UTC-3 adelanta un día después de las 21 h. */
+export const fechaLocalISO = (date: Date = new Date()): string => {
+  const mm = String(date.getMonth() + 1).padStart(2, '0');
+  const dd = String(date.getDate()).padStart(2, '0');
+  return `${date.getFullYear()}-${mm}-${dd}`;
+};
+
 export const formatDate = (date: string | Date, pattern = 'dd/MM/yyyy'): string => {
   const d = typeof date === 'string' ? parseISO(date) : date;
   if (!isValid(d)) return 'Fecha inválida';
@@ -98,6 +112,9 @@ export const formatDuration = (minutes: number): string => {
   const mins = minutes % 60;
   return mins > 0 ? `${hours}h ${mins}min` : `${hours}h`;
 };
+
+/** Número para mostrar, con coma decimal como se carga en los formularios: 70.5 -> "70,5" */
+export const formatDecimal = (n: number, decimals = 1): string => n.toFixed(decimals).replace('.', ',');
 
 export const round1 = (n: number): number => Math.round(n * 10) / 10;
 export const round2 = (n: number): number => Math.round(n * 100) / 100;
@@ -285,7 +302,7 @@ export const createEmptyFotos = (): FotosProgreso => ({
   posterior: '' });
 
 export const isValidFotos = (fotos: FotosProgreso): boolean => {
-  return !!fotos.frontal && !!fotos.lateral && !!fotos.posterior;
+  return !!fotos.frontal || !!fotos.lateral || !!fotos.posterior;
 };
 
 export const getFotoLabel = (key: keyof FotosProgreso): string => {

@@ -11,7 +11,7 @@
  * el inicializador perezoso de `useState` garantiza una sola instancia.
  */
 
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import {
   Modal as RNModal,
   View,
@@ -263,6 +263,13 @@ export const Toast = ({ message, type = 'info', onClose }: ToastProps) => {
   const [fadeAnim] = useState(() => new Animated.Value(0));
   const [slideAnim] = useState(() => new Animated.Value(-1));
 
+  // El padre suele pasar un `onClose` inline nuevo en cada render; si fuera
+  // dependencia del efecto, el temporizador se reiniciaría y el toast no se cerraría.
+  const onCloseRef = useRef(onClose);
+  useEffect(() => {
+    onCloseRef.current = onClose;
+  }, [onClose]);
+
   useEffect(() => {
     Animated.parallel([
       Animated.timing(fadeAnim, { toValue: 1, duration: 200, useNativeDriver: true }),
@@ -273,11 +280,11 @@ export const Toast = ({ message, type = 'info', onClose }: ToastProps) => {
       Animated.parallel([
         Animated.timing(fadeAnim, { toValue: 0, duration: 180, useNativeDriver: true }),
         Animated.timing(slideAnim, { toValue: -1, duration: 220, useNativeDriver: true }),
-      ]).start(() => onClose());
+      ]).start(() => onCloseRef.current());
     }, 3200);
 
     return () => clearTimeout(timer);
-  }, [fadeAnim, slideAnim, onClose]);
+  }, [fadeAnim, slideAnim]);
 
   const accent =
     type === 'success' ? t.colors.success

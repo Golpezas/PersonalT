@@ -10,9 +10,10 @@
  */
 
 import React from 'react';
-import { TextInput, Text, View, StyleSheet } from 'react-native';
+import { TextInput, Text, View } from 'react-native';
 import { useTheme } from '@/hooks/useTheme';
 import { Controller } from 'react-hook-form';
+import { splitLayoutStyle } from './splitLayoutStyle';
 
 interface InputProps {
   label?: string;
@@ -70,6 +71,7 @@ export const Input = React.forwardRef<TextInput, InputProps>(
   ) => {
     const t = useTheme();
     const isControlled = control && name;
+    const { outerStyle, innerStyle } = splitLayoutStyle(style);
 
     const wrapperStyle = {
       flexDirection: 'row' as const,
@@ -99,7 +101,7 @@ export const Input = React.forwardRef<TextInput, InputProps>(
         placeholderTextColor={placeholderTextColor ?? t.colors.placeholder}
         multiline={multiline}
         editable={!disabled}
-        style={[textStyle, style]}
+        style={[textStyle, innerStyle]}
         onChangeText={(v) => onChange?.(v)}
         onBlur={onBlur}
         {...props}
@@ -107,6 +109,9 @@ export const Input = React.forwardRef<TextInput, InputProps>(
       />
     );
 
+    // TextInput solo muestra `value` si es string: un número (p. ej. defaultValues
+    // numéricos del form) se vería vacío. Se convierte solo para mostrar; el
+    // `onChangeText` sigue entregando el texto crudo.
     const body = isControlled ? (
       <Controller
         control={control}
@@ -115,17 +120,27 @@ export const Input = React.forwardRef<TextInput, InputProps>(
         defaultValue={defaultValue}
         render={({ field }) =>
           renderTextInput({
-            value: field.value ?? '',
+            value:
+              field.value == null || (typeof field.value === 'number' && Number.isNaN(field.value))
+                ? ''
+                : String(field.value),
             onChangeText: field.onChange,
-            onBlur: field.onBlur })
+            onBlur: () => {
+              field.onBlur();
+              onBlur?.();
+            } })
         }
       />
     ) : (
-      renderTextInput()
+      renderTextInput(
+        defaultValue !== undefined && props.value === undefined
+          ? { defaultValue: String(defaultValue) }
+          : undefined
+      )
     );
 
     return (
-      <View style={{ gap: 6, width: '100%' }}>
+      <View style={[{ gap: 6, width: '100%' }, outerStyle]}>
         {label ? (
           <Text
             style={[
@@ -155,6 +170,3 @@ export const Input = React.forwardRef<TextInput, InputProps>(
 );
 
 Input.displayName = 'Input';
-
-const styles = StyleSheet.create({
-  unused: {} });

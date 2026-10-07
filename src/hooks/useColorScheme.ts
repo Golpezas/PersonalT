@@ -5,20 +5,26 @@
  * mientras el proyecto usa Tailwind v4 (y el bundle de Metro fallaba con
  * "NativeWind only supports Tailwind CSS v3"). Como la app usa estilos inline
  * con `StyleSheet`, se eliminó NativeWind y este hook cubre lo único que se
- * usaba de él: leer el esquema de color del sistema.
+ * usaba de él: resolver el esquema de color.
+ *
+ * Respeta la preferencia de Ajustes (`useUIStore().theme`): 'light' / 'dark'
+ * fuerzan el esquema; 'system' sigue al sistema operativo.
  */
 
 import { useColorScheme as useRNColorScheme } from 'react-native';
 import type { ColorSchemeName } from 'react-native';
+import { useUIStore } from '@/stores';
 
 export interface ThemeState {
-  colorScheme: Exclude<ColorSchemeName, null | undefined>;
+  colorScheme: Exclude<ColorSchemeName, null | undefined | 'unspecified'>;
   isDark: boolean;
 }
 
 export function useColorScheme(): ThemeState {
-  const scheme = useRNColorScheme();
+  const systemScheme = useRNColorScheme();
+  const preferencia = useUIStore((s) => s.theme);
+  const isDark = preferencia === 'system' ? systemScheme === 'dark' : preferencia === 'dark';
   return {
-    colorScheme: scheme === 'dark' ? 'dark' : 'light',
-    isDark: scheme === 'dark' };
+    colorScheme: isDark ? 'dark' : 'light',
+    isDark };
 }
