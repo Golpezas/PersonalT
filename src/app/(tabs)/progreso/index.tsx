@@ -22,7 +22,7 @@ import {
 } from '@/components/ui';
 import { LineChart, BarChart, RadarChart, Heatmap } from '@/components/charts';
 import { useMetas } from '@/hooks/useMetas';
-import { formatDate, formatRelativeTime, createEmptyPerimetros, createEmptyFotos } from '@/utils/helpers';
+import { formatDate, formatDecimal, formatNumero, formatRelativeTime, createEmptyPerimetros, createEmptyFotos } from '@/utils/helpers';
 import {
   volumenPorSemana,
   mejores1RM,
@@ -50,6 +50,9 @@ const COLOR_PESO = CHART_CONFIG.colors.primary;
 const COLOR_GRASA = CHART_CONFIG.colors.orange;
 const COLOR_MUSCULO = CHART_CONFIG.colors.success;
 const COLOR_INICIAL = '#94a3b8';
+
+/** Grasa y músculo son opcionales: 0 o vacío significa "sin medir". */
+const fmtStat = (n: number | null | undefined): string => (n != null && n > 0 ? formatDecimal(n) : '—');
 
 const PERIMETRO_LABELS: Record<string, string> = {
   brazoIzq: 'Brazo I',
@@ -406,29 +409,33 @@ export default function ProgresoScreen() {
       >
         <StatTile
           label="Peso"
-          value={(latestCheckin?.peso ?? ficha?.peso ?? 0).toFixed(1)}
+          value={fmtStat(latestCheckin?.peso ?? ficha?.peso)}
           unit="kg"
           icon="scale-outline"
           delta={deltas?.peso != null ? { value: Number(deltas.peso.toFixed(1)) } : null}
         />
         <StatTile
           label="Grasa"
-          value={(latestCheckin?.grasaCorporal ?? ficha?.grasaCorporal ?? 0).toFixed(1)}
-          unit="%"
+          value={fmtStat(latestCheckin?.grasaCorporal ?? ficha?.grasaCorporal)}
+          unit={(latestCheckin?.grasaCorporal ?? ficha?.grasaCorporal) ? '%' : undefined}
           icon="water-outline"
           tone="warning"
           delta={
-            deltas?.grasaCorporal != null ? { value: Number(deltas.grasaCorporal.toFixed(1)) } : null
+            deltas?.grasaCorporal != null
+              ? { value: Number(deltas.grasaCorporal.toFixed(1)), subirEsBueno: false }
+              : null
           }
         />
         <StatTile
           label="Músculo"
-          value={(latestCheckin?.musculatura ?? ficha?.musculatura ?? 0).toFixed(1)}
-          unit="kg"
+          value={fmtStat(latestCheckin?.musculatura ?? ficha?.musculatura)}
+          unit={(latestCheckin?.musculatura ?? ficha?.musculatura) ? 'kg' : undefined}
           icon="barbell-outline"
           tone="success"
           delta={
-            deltas?.musculatura != null ? { value: Number(deltas.musculatura.toFixed(1)) } : null
+            deltas?.musculatura != null
+              ? { value: Number(deltas.musculatura.toFixed(1)), subirEsBueno: true }
+              : null
           }
         />
         <StatTile
@@ -441,7 +448,7 @@ export default function ProgresoScreen() {
         <StatTile label="Entrenos" value={resumen.total} icon="barbell-outline" tone="primary" />
         <StatTile
           label="Volumen"
-          value={(resumen.volumen / 1000).toFixed(1)}
+          value={formatDecimal(resumen.volumen / 1000)}
           unit="t"
           icon="stats-chart-outline"
           tone="primary"
@@ -472,15 +479,22 @@ export default function ProgresoScreen() {
         {activeTab === 'antropometria' && (
           <>
             <Card style={styles.chartCard}>
-              <CardHeader title="Peso corporal" subtitle={`${seriePeso.length} mediciones`} />
+              <CardHeader
+                title="Peso corporal"
+                subtitle={`${seriePeso.length} ${seriePeso.length === 1 ? 'medición' : 'mediciones'}`}
+              />
               <CardContent>
                 <LineChart
                   data={seriePeso}
                   xKey="semana"
                   series={[{ key: 'peso', label: 'Peso (kg)', color: COLOR_PESO }]}
                   formatX={(v) => (v === 0 ? 'Inicial' : `S${v}`)}
-                  formatY={(v) => `${v.toFixed(1)}`}
-                  emptyMessage="Registra la ficha inicial y check-ins semanales"
+                  formatY={(v) => formatDecimal(v)}
+                  emptyMessage={
+                    seriePeso.length === 1
+                      ? 'Cargá un check-in para ver la evolución'
+                      : 'Registra la ficha inicial y check-ins semanales'
+                  }
                 />
               </CardContent>
             </Card>
@@ -497,7 +511,7 @@ export default function ProgresoScreen() {
                       { key: 'musculo', label: 'Músculo (kg)', color: COLOR_MUSCULO },
                     ]}
                     formatX={(v) => (v === 0 ? 'Inicial' : `S${v}`)}
-                    formatY={(v) => v.toFixed(1)}
+                    formatY={(v) => formatDecimal(v)}
                   />
                 </CardContent>
               </Card>
@@ -627,7 +641,8 @@ export default function ProgresoScreen() {
                     data={volumenSemanal}
                     xKey="semana"
                     series={[{ key: 'volumen', label: 'Volumen (kg)', color: COLOR_PESO }]}
-                    formatY={(v) => `${(v / 1000).toFixed(0)}t`}
+                    formatX={(v) => `S${v}`}
+                    formatY={(v) => (v >= 1000 ? `${formatDecimal(v / 1000)}t` : `${Math.round(v)}`)}
                   />
                 </CardContent>
               </Card>
@@ -920,10 +935,7 @@ export default function ProgresoScreen() {
 // ============================================
 // Helpers locales
 // ============================================
-/** Redondeo a 1 decimal para mostrar unidades de medida. */
-function round(v: number): string {
-  return `${Math.round(v * 10) / 10}`;
-}
+const round = formatNumero;
 
 function unidadLegible(u: string): string {
   return u === 'dias' ? 'días' : u;

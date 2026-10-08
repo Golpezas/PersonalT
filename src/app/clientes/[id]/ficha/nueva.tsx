@@ -3,8 +3,8 @@
  * Multi-step form: Antropometría → Perímetros → Fotos → Notas
  */
 
-import React, { useState, useMemo, useRef } from 'react';
-import { View, Text, ScrollView, StyleSheet, Alert, TouchableOpacity, Image, KeyboardAvoidingView } from 'react-native';
+import React, { useState, useMemo, useRef, useEffect } from 'react';
+import { View, Text, ScrollView, StyleSheet, Alert, TouchableOpacity, Image, KeyboardAvoidingView, BackHandler } from 'react-native';
 import { router, useLocalSearchParams } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -67,6 +67,23 @@ export default function FichaFormScreen() {
   );
   const [fotos, setFotos] = useState(createEmptyFotos());
   const [observaciones, setObservaciones] = useState('');
+
+  // Sin deps: se re-suscribe en cada render para leer el paso y los datos actuales.
+  useEffect(() => {
+    const sub = BackHandler.addEventListener('hardwareBackPress', () => {
+      if (currentStep > 0) {
+        irAPaso(currentStep - 1);
+        return true;
+      }
+      if (!pesoTexto && !grasaTexto && !musculoTexto) return false;
+      Alert.alert('Salir de la ficha', 'Los datos cargados no se guardarán.', [
+        { text: 'Seguir', style: 'cancel' },
+        { text: 'Descartar', style: 'destructive', onPress: () => router.back() },
+      ]);
+      return true;
+    });
+    return () => sub.remove();
+  });
   const [lesionLimitaciones, setLesionLimitaciones] = useState('');
 
   const perimetros = useMemo(

@@ -10,7 +10,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useTheme } from '@/hooks/useTheme';
 import { useClientesStore, useProgresoStore, useUIStore } from '@/stores';
 import { Button, Card, CardHeader, CardContent, Avatar, SegmentedControl } from '@/components/ui';
-import { formatDate, formatDecimal, calculateIMC, calculateIMCClassification, createEmptyPerimetros, createEmptyFotos } from '@/utils/helpers';
+import { formatDate, formatDecimal, formatNumero, calculateIMC, calculateIMCClassification, createEmptyPerimetros, createEmptyFotos } from '@/utils/helpers';
 import { useMetas } from '@/hooks/useMetas';
 import { getDatabase } from '@/db/database';
 import { leerRutinas, type RutinaDetalle } from '@/services/rutinas';
@@ -285,8 +285,17 @@ export default function ClienteDetailScreen() {
 
   const nuevoCheckin = () => router.push(`/clientes/${id}/checkin/nueva`);
 
-  const deltaStyle = (v: number) => (v > 0 ? styles.deltaPositive : v < 0 ? styles.deltaNegative : styles.deltaNeutral);
+  /** `subirEsBueno`: músculo sube = verde, grasa baja = verde. Peso y perímetros dependen del objetivo: neutro. */
+  const deltaStyle = (v: number, subirEsBueno?: boolean) => {
+    if (subirEsBueno === undefined || v === 0) return styles.deltaNeutral;
+    return v > 0 === subirEsBueno ? styles.deltaPositive : styles.deltaNegative;
+  };
   const fmtDelta = (v: number, unidad: string) => `${v > 0 ? '+' : ''}${formatDecimal(v)}${unidad}`;
+
+  const grasaActual = latestCheckin?.grasaCorporal ?? ficha?.grasaCorporal;
+  const musculoActual = latestCheckin?.musculatura ?? ficha?.musculatura;
+  const perimetroActual = (key: keyof Perimetros): number =>
+    (latestCheckin?.perimetros[key] ?? 0) > 0 ? latestCheckin!.perimetros[key] : (ficha?.perimetros[key] ?? 0);
 
   return (
     <View style={[styles.container, { backgroundColor: t.colors.bg }]}>
@@ -360,35 +369,44 @@ export default function ClienteDetailScreen() {
             {ficha ? (
               <>
                 <Card style={styles.summaryCard}>
-                  <CardHeader title="Resumen Antropométrico" subtitle={`Ficha inicial · ${formatDate(ficha.fecha)}`} />
+                  <CardHeader
+                    title="Resumen Antropométrico"
+                    subtitle={
+                      latestCheckin
+                        ? `Actual · check-in ${formatDate(latestCheckin.fecha)} · ficha ${formatDate(ficha.fecha)}`
+                        : `Ficha inicial · ${formatDate(ficha.fecha)}`
+                    }
+                  />
                   <CardContent>
                     <View style={styles.summaryGrid}>
                       <View style={styles.summaryItem}>
                         <Text style={styles.summaryLabel}>Peso</Text>
-                        <Text style={styles.summaryValue}>{formatDecimal(ficha.peso)} kg</Text>
-                        {deltas ? (
-                          <Text style={[styles.summaryDelta, deltaStyle(deltas.peso)]}>{fmtDelta(deltas.peso, ' kg')}</Text>
+                        <Text style={styles.summaryValue}>{formatDecimal(pesoActual ?? 0)} kg</Text>
+                        {deltas && deltas.peso !== 0 ? (
+                          <Text style={[styles.summaryDelta, deltaStyle(deltas.peso)]}>
+                            {fmtDelta(deltas.peso, ' kg')} desde ficha
+                          </Text>
                         ) : null}
                       </View>
                       <View style={styles.summaryItem}>
                         <Text style={styles.summaryLabel}>Grasa Corporal</Text>
                         <Text style={styles.summaryValue}>
-                          {ficha.grasaCorporal != null ? `${formatDecimal(ficha.grasaCorporal)}%` : '-'}
+                          {grasaActual != null ? `${formatDecimal(grasaActual)}%` : '-'}
                         </Text>
-                        {deltas?.grasaCorporal !== undefined ? (
-                          <Text style={[styles.summaryDelta, deltaStyle(deltas.grasaCorporal)]}>
-                            {fmtDelta(deltas.grasaCorporal, '%')}
+                        {deltas?.grasaCorporal !== undefined && deltas.grasaCorporal !== 0 ? (
+                          <Text style={[styles.summaryDelta, deltaStyle(deltas.grasaCorporal, false)]}>
+                            {fmtDelta(deltas.grasaCorporal, '%')} desde ficha
                           </Text>
                         ) : null}
                       </View>
                       <View style={styles.summaryItem}>
                         <Text style={styles.summaryLabel}>Masa Muscular</Text>
                         <Text style={styles.summaryValue}>
-                          {ficha.musculatura != null ? `${formatDecimal(ficha.musculatura)} kg` : '-'}
+                          {musculoActual != null ? `${formatDecimal(musculoActual)} kg` : '-'}
                         </Text>
-                        {deltas?.musculatura !== undefined ? (
-                          <Text style={[styles.summaryDelta, deltaStyle(deltas.musculatura)]}>
-                            {fmtDelta(deltas.musculatura, ' kg')}
+                        {deltas?.musculatura !== undefined && deltas.musculatura !== 0 ? (
+                          <Text style={[styles.summaryDelta, deltaStyle(deltas.musculatura, true)]}>
+                            {fmtDelta(deltas.musculatura, ' kg')} desde ficha
                           </Text>
                         ) : null}
                       </View>
@@ -409,13 +427,12 @@ export default function ClienteDetailScreen() {
                     <View style={styles.perimetrosGrid}>
                       {PERIMETROS_VISIBLES.map((p) => {
                         const delta = deltas?.perimetros[p.key];
+                        const actual = perimetroActual(p.key);
                         return (
                           <View key={p.key} style={styles.perimetroItem}>
                             <Text style={styles.perimetroLabel}>{p.label}</Text>
-                            <Text style={styles.perimetroValue}>
-                              {ficha.perimetros[p.key] > 0 ? formatDecimal(ficha.perimetros[p.key]) : '-'}
-                            </Text>
-                            {delta !== undefined ? (
+                            <Text style={styles.perimetroValue}>{actual > 0 ? formatDecimal(actual) : '-'}</Text>
+                            {delta !== undefined && delta !== 0 ? (
                               <Text style={[styles.perimetroDelta, deltaStyle(delta)]}>{fmtDelta(delta, '')}</Text>
                             ) : null}
                           </View>
@@ -636,8 +653,8 @@ export default function ClienteDetailScreen() {
                           ) : null}
                         </View>
                         <Text style={styles.metaSubtitle}>
-                          {Math.round(meta.valorInicial * 10) / 10} {meta.unidad} → {Math.round(meta.valorObjetivo * 10) / 10} {meta.unidad}
-                          {progreso.valorActual != null ? ` · actual ${Math.round(progreso.valorActual * 10) / 10}` : ''}
+                          {formatNumero(meta.valorInicial)} {meta.unidad} → {formatNumero(meta.valorObjetivo)} {meta.unidad}
+                          {progreso.valorActual != null ? ` · actual ${formatNumero(progreso.valorActual)}` : ''}
                           {' | '}
                           {formatDate(meta.fechaObjetivo)}
                         </Text>

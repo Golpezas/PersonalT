@@ -70,8 +70,11 @@ function serialize(backup: BackupFile): string {
   return JSON.stringify(backup, null, 2);
 }
 
+/** Hora local: con toISOString el nombre saldría en UTC y no coincidiría con el reloj del usuario. */
 function timestamp(): string {
-  return new Date().toISOString().slice(0, 19).replace(/[:T]/g, '-');
+  const d = new Date();
+  const p = (n: number) => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}-${p(d.getHours())}-${p(d.getMinutes())}-${p(d.getSeconds())}`;
 }
 
 function writeJsonFile(file: File, json: string) {

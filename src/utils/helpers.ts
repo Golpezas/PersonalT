@@ -48,6 +48,18 @@ export const formatRelativeTime = (date: string | Date): string => {
   if (!isValid(d)) return 'Fecha inválida';
   
   const now = new Date();
+
+  // Fechas sin hora (check-ins, fichas): comparar días de calendario, no horas.
+  if (typeof date === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(date)) {
+    const dias = Math.round(
+      (new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime() - d.getTime()) / (1000 * 60 * 60 * 24)
+    );
+    if (dias <= 0) return 'hoy';
+    if (dias === 1) return 'ayer';
+    if (dias <= 7) return `hace ${dias} días`;
+    return formatDate(d);
+  }
+
   const diffMs = now.getTime() - d.getTime();
   const diffDays = Math.floor(diffMs / (1000 * 60 * 60 * 24));
   const diffHours = Math.floor(diffMs / (1000 * 60 * 60));
@@ -115,6 +127,9 @@ export const formatDuration = (minutes: number): string => {
 
 /** Número para mostrar, con coma decimal como se carga en los formularios: 70.5 -> "70,5" */
 export const formatDecimal = (n: number, decimals = 1): string => n.toFixed(decimals).replace('.', ',');
+
+/** Hasta 1 decimal, sin ",0" sobrante: 65 → "65", 69.25 → "69,3". */
+export const formatNumero = (n: number): string => String(Math.round(n * 10) / 10).replace('.', ',');
 
 export const round1 = (n: number): number => Math.round(n * 10) / 10;
 export const round2 = (n: number): number => Math.round(n * 100) / 100;

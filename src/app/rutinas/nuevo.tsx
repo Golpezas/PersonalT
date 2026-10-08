@@ -2,8 +2,9 @@
  * Crear Rutina
  */
 
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import {
+  BackHandler,
   View,
   Text,
   ScrollView,
@@ -24,6 +25,7 @@ import { generateId, getGrupoMuscularLabel } from '@/utils/helpers';
 import { getDatabase, runTransaction } from '@/db/database';
 import { useTheme } from '@/hooks/useTheme';
 import type { Theme } from '@/constants/theme';
+import type { ProgresionPlan } from '@/types';
 import {
   SILUETAS,
   SOMATOTIPOS,
@@ -50,6 +52,7 @@ interface EjercicioEditable {
   rpeTxt: string;
   descansoTxt: string;
   notas?: string;
+  progresion?: ProgresionPlan;
 }
 
 interface DiaEditable {
@@ -143,6 +146,28 @@ export default function RutinaFormScreen() {
 
   const volver = () => (router.canGoBack() ? router.back() : router.replace('/rutinas'));
 
+  const hayCambios = nombre.trim() !== '' || diasLocal.some((d) => d.ejercicios.length > 0);
+  const salirConConfirmacion = () => {
+    if (!hayCambios) {
+      volver();
+      return;
+    }
+    Alert.alert('Salir sin guardar', 'La rutina que estás armando se va a perder.', [
+      { text: 'Seguir editando', style: 'cancel' },
+      { text: 'Descartar', style: 'destructive', onPress: volver },
+    ]);
+  };
+
+  // Sin deps: se re-suscribe en cada render para leer el estado actual del formulario.
+  useEffect(() => {
+    const sub = BackHandler.addEventListener('hardwareBackPress', () => {
+      if (submitting) return true;
+      salirConConfirmacion();
+      return true;
+    });
+    return () => sub.remove();
+  });
+
   /** La pantalla queda montada dentro de las tabs: hay que limpiar a mano tras guardar. */
   const resetForm = () => {
     setNombre('');
@@ -224,6 +249,7 @@ export default function RutinaFormScreen() {
             rpeTxt: String(e.rpe),
             descansoTxt: String(e.descanso),
             notas: e.notas,
+            progresion: e.progresion,
           }];
         }),
       }))
@@ -323,7 +349,7 @@ export default function RutinaFormScreen() {
             tempo: '3-0-1-0',
             descansoSeg: enteroAcotado(e.descansoTxt, LIMITES.descanso),
             notas: e.notas ?? '',
-            progresion: { tipo: 'lineal' as const, incrementoPeso: 2.5, frecuenciaSemanas: 1 },
+            progresion: e.progresion ?? { tipo: 'lineal' as const, incrementoPeso: 2.5, frecuenciaSemanas: 1 },
           })),
     }));
 
@@ -423,7 +449,7 @@ export default function RutinaFormScreen() {
   return (
     <KeyboardAvoidingView style={styles.container} behavior="padding">
       <View style={[styles.header, { paddingTop: insets.top + 8 }]}>
-        <TouchableOpacity onPress={volver} style={styles.headerBtn} hitSlop={12} accessibilityLabel="Volver">
+        <TouchableOpacity onPress={salirConConfirmacion} style={styles.headerBtn} hitSlop={12} accessibilityLabel="Volver">
           <Ionicons name="chevron-back" size={24} color={t.colors.text} />
         </TouchableOpacity>
         <View style={{ flex: 1 }}>
@@ -713,16 +739,16 @@ export default function RutinaFormScreen() {
             <Text style={styles.previewDia}>Sáb-Dom</Text>
             <Text style={styles.previewEnfoque}>Descanso activo</Text>
           </View>
-
-          <Button
-            variant="primary"
-            fullWidth
-            onPress={confirmarPlantilla}
-            leftIcon={<Ionicons name="download-outline" size={18} color={t.colors.onPrimary} />}
-          >
-            Cargar plantilla
-          </Button>
         </ScrollView>
+        <Button
+          variant="primary"
+          fullWidth
+          onPress={confirmarPlantilla}
+          style={styles.plantillaBtn}
+          leftIcon={<Ionicons name="download-outline" size={18} color={t.colors.onPrimary} />}
+        >
+          Cargar plantilla
+        </Button>
       </Modal>
     </KeyboardAvoidingView>
   );
@@ -779,6 +805,7 @@ const createStyles = (t: Theme) => StyleSheet.create({
     borderWidth: 1, borderColor: t.colors.primary, backgroundColor: t.colors.surface },
   plantillaCtaTitulo: { fontSize: 15, fontWeight: '700', color: t.colors.text },
   plantillaCtaTexto: { fontSize: 12, color: t.colors.textMuted, marginTop: 2 },
+  plantillaBtn: { marginTop: 12 },
   plantillaLabel: { fontSize: 13, fontWeight: '700', color: t.colors.text, marginTop: 4 },
   plantillaDescripcion: { fontSize: 12, color: t.colors.textMuted },
   chips: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },

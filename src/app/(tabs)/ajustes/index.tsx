@@ -374,8 +374,8 @@ export default function AjustesScreen() {
   ];
 
   return (
-    <View style={[styles.container, { backgroundColor: t.colors.bg }]}>
-      <ScrollView contentContainerStyle={[styles.scrollContent, { paddingTop: insets.top + t.spacing.xl }]}>
+    <View style={[styles.container, { backgroundColor: t.colors.bg, paddingTop: insets.top }]}>
+      <ScrollView contentContainerStyle={[styles.scrollContent, { paddingTop: t.spacing.xl }]}>
         <Text style={[t.typography.display, { color: t.colors.text }]}>Ajustes</Text>
         <Text style={[t.typography.small, { color: t.colors.textMuted, marginTop: 2, marginBottom: 6 }]}>
           Preferencias, respaldos y datos de la app

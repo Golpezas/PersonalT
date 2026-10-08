@@ -4,8 +4,8 @@
  */
 
 import React, { useState, useEffect, useMemo, useRef } from 'react';
-import { View, Text, ScrollView, StyleSheet, Alert, TouchableOpacity, TextInput, KeyboardAvoidingView } from 'react-native';
-import { router, useLocalSearchParams } from 'expo-router';
+import { View, Text, ScrollView, StyleSheet, Alert, TouchableOpacity, TextInput, KeyboardAvoidingView, BackHandler } from 'react-native';
+import { Stack, router, useLocalSearchParams } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -447,6 +447,16 @@ function Logger({ rutinaId, diaId, onTerminar }: { rutinaId: string; diaId: stri
     ]);
   };
 
+  // Sin deps: se re-suscribe en cada render para que `cerrar` vea las series actuales.
+  useEffect(() => {
+    const sub = BackHandler.addEventListener('hardwareBackPress', () => {
+      if (saving) return true;
+      cerrar();
+      return true;
+    });
+    return () => sub.remove();
+  });
+
   const onFinish = () => {
     if (seriesCompletadas === 0) {
       Alert.alert('Nada registrado', 'Marca al menos una serie como completada antes de guardar.');
@@ -561,6 +571,7 @@ function Logger({ rutinaId, diaId, onTerminar }: { rutinaId: string; diaId: stri
 
   return (
     <KeyboardAvoidingView style={styles.container} behavior="padding">
+      <Stack.Screen options={{ gestureEnabled: false }} />
       {/* Barra superior fija con cronómetro */}
       <View style={[styles.topBar, { paddingTop: insets.top + 12 }]}>
         <TouchableOpacity onPress={cerrar} style={styles.closeBtn} hitSlop={12} accessibilityLabel="Cerrar entrenamiento">
@@ -581,7 +592,7 @@ function Logger({ rutinaId, diaId, onTerminar }: { rutinaId: string; diaId: stri
       </View>
 
       <ScrollView
-        contentContainerStyle={[styles.scrollContent, { paddingBottom: (descanso ? 130 : 40) + insets.bottom }]}
+        contentContainerStyle={[styles.scrollContent, { paddingBottom: 130 + insets.bottom }]}
         keyboardShouldPersistTaps="handled"
       >
         {/* Control del cronómetro */}

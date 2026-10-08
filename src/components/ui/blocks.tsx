@@ -235,7 +235,8 @@ export function StatTile({
   label: string;
   value: string | number;
   unit?: string;
-  delta?: { value: number; suffix?: string } | null;
+  /** Sin `subirEsBueno` el delta se muestra en color neutro (p. ej. peso: depende del objetivo). */
+  delta?: { value: number; suffix?: string; subirEsBueno?: boolean } | null;
   icon?: any;
   tone?: 'primary' | 'success' | 'warning' | 'danger' | 'accent';
   onPress?: () => void;
@@ -250,7 +251,13 @@ export function StatTile({
     accent: t.colors.accent }[tone];
 
   const deltaColor =
-    delta == null ? t.colors.textSubtle : delta.value > 0 ? t.colors.success : delta.value < 0 ? t.colors.danger : t.colors.textMuted;
+    delta == null
+      ? t.colors.textSubtle
+      : delta.subirEsBueno === undefined || delta.value === 0
+        ? t.colors.textMuted
+        : delta.value > 0 === delta.subirEsBueno
+          ? t.colors.success
+          : t.colors.danger;
 
   const Wrapper: any = onPress ? Pressable : View;
 
@@ -294,7 +301,7 @@ export function StatTile({
       {delta ? (
         <Text style={[t.typography.caption, { color: deltaColor, fontWeight: '700' }]}>
           {delta.value > 0 ? '+' : ''}
-          {delta.value}
+          {String(delta.value).replace('.', ',')}
           {delta.suffix ?? ''}
         </Text>
       ) : null}

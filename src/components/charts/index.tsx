@@ -4,8 +4,9 @@
  * Notas de API (verificadas contra victory-native 42 / skia 2.14):
  *  - victory-native v42 expone `CartesianChart` / `Line` / `Bar` / `Area`
  *    (no existen `VictoryChart` ni `VictoryLine`).
- *  - `useChartPressState` devuelve SharedValues de Reanimated: para leerlos en JS
- *    hay que espejarlos con `useAnimatedReaction` + `runOnJS`.
+ *  - `useChartPressState` devuelve `{ state, isActive }`; `state` trae SharedValues
+ *    de Reanimated: para leerlos en JS hay que espejarlos con
+ *    `useAnimatedReaction` + `runOnJS`.
  *  - Los ejes necesitan un `SkFont`; `matchFont` lo resuelve con la fuente del
  *    sistema, sin cargar un .ttf.
  *  - Skia 2.x: los paths se crean con factories (`Skia.Path.Polygon`,
@@ -18,8 +19,9 @@ import React, { useMemo, useState } from 'react';
 import { View, Text, StyleSheet, TouchableOpacity, LayoutChangeEvent, Platform } from 'react-native';
 import { CartesianChart, Line, Bar, useChartPressState } from 'victory-native';
 import { Canvas, Path, matchFont, Skia } from '@shopify/react-native-skia';
-import { useAnimatedReaction, runOnJS } from 'react-native-reanimated';
+import { useAnimatedReaction, runOnJS, type SharedValue } from 'react-native-reanimated';
 import { CHART_CONFIG } from '@/constants';
+import { formatNumero } from '@/utils/helpers';
 
 // 'System' no existe en el font manager de Android: Skia devolvería un typeface
 // vacío y los ejes/etiquetas no se dibujarían.
@@ -58,7 +60,7 @@ export function ChartLegend({ series }: { series: Serie[] }) {
  * Espeja el índice del punto pulsado del chart en estado de React.
  * Necesario porque useChartPressState expone SharedValues (UI thread).
  */
-function useSelectedIndex(pressState: { matchedIndex: { value: number } }) {
+function useSelectedIndex(pressState: { matchedIndex: SharedValue<number> }) {
   const [idx, setIdx] = useState(-1);
   useAnimatedReaction(
     () => pressState.matchedIndex.value,
@@ -101,8 +103,8 @@ export function LineChart({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [seriesKey]);
 
-  const pressState = useChartPressState({ x: xKey, y: initial } as any);
-  const idxSeleccionado = useSelectedIndex(pressState as any);
+  const { state: pressState } = useChartPressState({ x: xKey, y: initial });
+  const idxSeleccionado = useSelectedIndex(pressState);
 
   const dominioY = useMemo(() => {
     const claves = seriesKey ? seriesKey.split(',') : [];
@@ -124,6 +126,10 @@ export function LineChart({
     );
   }
 
+  // Solo valores reales de X: sin esto el eje inventa ticks intermedios ("S0.5").
+  const pasoTick = Math.ceil(data.length / 6);
+  const ticksX = data.filter((_, i) => i % pasoTick === 0).map((d) => d[xKey] as number);
+
   const puntoActivo = idxSeleccionado >= 0 ? data[idxSeleccionado] : null;
   const ultimo = data[data.length - 1];
   const primero = data[0];
@@ -135,7 +141,7 @@ export function LineChart({
           data={data}
           xKey={xKey}
           yKeys={yKeys as any}
-          chartPressState={pressState as any}
+          chartPressState={pressState}
           domainPadding={{ left: 18, right: 18, top: 20, bottom: 10 }}
           {...(dominioY ? { domain: { y: dominioY } } : {})}
           padding={{ left: 40, right: 14, top: 8, bottom: 6 }}
@@ -144,6 +150,7 @@ export function LineChart({
             labelColor: CHART_CONFIG.textColor,
             font: AXIS_FONT,
             tickCount: Math.min(6, data.length),
+            tickValues: ticksX,
             labelPosition: 'outset',
             labelOffset: 6,
             enableRescaling: false,
@@ -183,7 +190,7 @@ export function LineChart({
       {puntoActivo ? (
         <View style={styles.tooltip}>
           <Text style={styles.tooltipTitle}>
-            Semana {formatX ? formatX(puntoActivo[xKey]) : puntoActivo[xKey]}
+            {formatX ? formatX(puntoActivo[xKey]) : `Semana ${puntoActivo[xKey]}`}
           </Text>
           {series.map((s) =>
             typeof puntoActivo[s.key] === 'number' ? (
@@ -207,11 +214,12 @@ export function LineChart({
               <View key={s.key} style={styles.summaryItem}>
                 <View style={[styles.legendDot, { backgroundColor: s.color }]} />
                 <Text style={styles.summaryLabel}>{s.label}</Text>
-                <Text style={styles.summaryValue}>{fin != null ? `${Math.round(fin * 10) / 10}` : '—'}</Text>
+                <Text style={styles.summaryValue}>{fin != null ? formatNumero(fin) : '—'}</Text>
+                {/* Color neutro: si subir es bueno depende de la serie y del objetivo del cliente. */}
                 {cambio != null && cambio !== 0 && (
-                  <Text style={[styles.summaryDelta, cambio > 0 ? styles.deltaUp : styles.deltaDown]}>
+                  <Text style={[styles.summaryDelta, styles.deltaNeutral]}>
                     {cambio > 0 ? '+' : ''}
-                    {Math.round(cambio * 10) / 10}
+                    {formatNumero(cambio)}
                   </Text>
                 )}
               </View>
@@ -234,16 +242,20 @@ export function BarChart({
   xKey,
   series,
   height = DEFAULT_HEIGHT,
+  formatX,
   formatY,
   emptyMessage = 'Sin datos' }: {
   data: ChartDatum[];
   xKey: string;
   series: Serie[];
   height?: number;
+  formatX?: (v: any) => string;
   formatY?: (v: number) => string;
   emptyMessage?: string;
 }) {
   const yKeys = series.map((s) => s.key);
+  const maxY = Math.max(0, ...data.flatMap((d) => yKeys.map((k) => (typeof d[k] === 'number' ? d[k] : 0))));
+  const margenX = data.length <= 2 ? 90 : 18;
 
   if (data.length === 0) {
     return (
@@ -260,15 +272,19 @@ export function BarChart({
           data={data}
           xKey={xKey}
           yKeys={yKeys as any}
-          domainPadding={{ left: 18, right: 18, top: 20, bottom: 10 }}
+          domain={{ y: [0, maxY > 0 ? maxY * 1.15 : 1] }}
+          domainPadding={{ left: margenX, right: margenX, top: 20, bottom: 0 }}
           padding={{ left: 48, right: 14, top: 8, bottom: 6 }}
           xAxis={{
             lineColor: '#cbd5e1',
             labelColor: CHART_CONFIG.textColor,
             font: AXIS_FONT,
+            tickCount: data.length,
+            tickValues: data.map((d) => d[xKey]),
             labelPosition: 'outset',
             labelOffset: 6,
-            enableRescaling: false }}
+            enableRescaling: false,
+            formatXLabel: formatX }}
           yAxis={[
             {
               lineColor: '#e2e8f0',
@@ -291,6 +307,7 @@ export function BarChart({
                   chartBounds={chartBounds as any}
                   color={s.color}
                   innerPadding={0.4}
+                  {...(data.length <= 3 ? { barWidth: 40 } : {})}
                   roundedCorners={{ topLeft: 4, topRight: 4, bottomLeft: 0, bottomRight: 0 }}
                 />
               ))}
@@ -523,8 +540,7 @@ const styles = StyleSheet.create({
   summaryLabel: { fontSize: 10, color: '#94a3b8', marginTop: 2 },
   summaryValue: { fontSize: 15, fontWeight: '700', color: '#0f172a'},
   summaryDelta: { fontSize: 11, fontWeight: '600'},
-  deltaUp: { color: '#22c55e' },
-  deltaDown: { color: '#ef4444' },
+  deltaNeutral: { color: '#64748b' },
   heatmap: { flexDirection: 'row', flexWrap: 'wrap', gap: 5, justifyContent: 'center' },
   heatCell: { width: 22, height: 22, borderRadius: 5 },
   heatFooter: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginTop: 12 },

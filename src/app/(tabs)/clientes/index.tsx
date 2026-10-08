@@ -94,7 +94,7 @@ export default function ClientesScreen() {
     (id: string, nombre: string) => {
       Alert.alert(
         'Eliminar cliente',
-        `¿Eliminar a ${nombre}? Se borran su ficha, check-ins, rutinas y entrenamientos. No se puede deshacer.`,
+        `¿Eliminar a ${nombre}? Se borran su ficha, check-ins, rutinas, entrenamientos y metas. No se puede deshacer.`,
         [
           { text: 'Cancelar', style: 'cancel' },
           { text: 'Eliminar', style: 'destructive', onPress: () => deleteClienteAndData(id) },

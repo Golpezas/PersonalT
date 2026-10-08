@@ -7,6 +7,8 @@
  * Los `id` de ejercicio son los del catálogo base (`ex-N`, ver db/database.ts).
  */
 
+import type { ProgresionPlan } from '@/types';
+
 export type Somatotipo = 'ectomorfo' | 'mesomorfo' | 'endomorfo';
 export type Silueta = 'pera' | 'manzana' | 'reloj' | 'rectangulo' | 'triangulo_invertido';
 
@@ -150,7 +152,14 @@ export interface EjercicioGenerado {
   rpe: number;
   descanso: number;
   notas: string;
+  /** Solo si no es la lineal por defecto (p. ej. isométricos en segundos) */
+  progresion?: ProgresionPlan;
 }
+
+const PROGRESION_SEGUNDOS: ProgresionPlan = {
+  tipo: 'personalizada',
+  descripcion: 'Reps en segundos · +5 s por semana',
+};
 
 export interface DiaGenerado {
   orden: number;
@@ -191,6 +200,7 @@ export function generarPlantilla(somatotipo: Somatotipo, silueta: Silueta): Plan
         rpe: p.rpe,
         descanso: e.compuesto ? p.descanso.compuesto : p.descanso.aislado,
         notas: e.segundos ? 'Repeticiones = segundos de sostén' : '',
+        progresion: e.segundos ? PROGRESION_SEGUNDOS : undefined,
       })),
     };
   });
