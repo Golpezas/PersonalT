@@ -16,7 +16,7 @@ import { useTheme } from '@/hooks/useTheme';
 import { useClientesStore, useRutinasStore, useUIStore } from '@/stores';
 import { Button, Card, CardHeader, CardContent, Chip, Badge, EmptyState, Avatar } from '@/components/ui';
 import { formatHecho, getGrupoMuscularLabel, getProgresionLabel } from '@/utils/helpers';
-import { leerDiasHechosEstaSemana, leerRutinas } from '@/services/rutinas';
+import { etiquetaSemana, leerDiasHechosEstaSemana, leerRutinas, leerSemanaActual } from '@/services/rutinas';
 import { useGuardFicha } from '@/hooks/useGuardFicha';
 import { GRUPOS_MUSCULARES } from '@/constants';
 
@@ -60,10 +60,12 @@ export default function RutinasScreen() {
 
   const activeRutinaId = activeRutina?.id;
   const [diasHechos, setDiasHechos] = useState<Map<string, string>>(() => new Map());
+  const [semanaActual, setSemanaActual] = useState<number | null>(null);
   useFocusEffect(
     useCallback(() => {
       setDiasHechos(activeRutinaId ? leerDiasHechosEstaSemana(activeRutinaId) : new Map());
-    }, [activeRutinaId])
+      setSemanaActual(activeRutina ? leerSemanaActual(activeRutina) : null);
+    }, [activeRutinaId, activeRutina])
   );
   const hechoDiaActual = diaActual ? diasHechos.get(diaActual.id) : undefined;
 
@@ -96,8 +98,16 @@ export default function RutinasScreen() {
         <Text style={[t.typography.display, { color: t.colors.text }]}>Rutinas</Text>
         <Text style={[t.typography.small, { color: t.colors.textMuted, marginTop: 2 }]} numberOfLines={1}>
           {cliente ? `${cliente.nombre} ${cliente.apellido}` : '—'}
-          {activeRutina ? ` · Mesociclo ${activeRutina.mesociclo} · S${activeRutina.semanaInicio}–${activeRutina.semanaFin}` : ''}
         </Text>
+        {activeRutina ? (
+          <Text style={[t.typography.small, { color: t.colors.primary, fontWeight: '600' }]} numberOfLines={1}>
+            {`Mesociclo ${activeRutina.mesociclo} · ${
+              semanaActual !== null
+                ? etiquetaSemana(semanaActual, activeRutina)
+                : `S${activeRutina.semanaInicio}–${activeRutina.semanaFin}`
+            }`}
+          </Text>
+        ) : null}
       </View>
       <Pressable
         onPress={() => router.push('/rutinas/catalogo')}

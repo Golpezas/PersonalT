@@ -22,7 +22,9 @@ import {
   getRepsObjetivo,
   formatCronometro,
   formatSeconds,
+  formatNumero,
   getProgresionLabel } from '@/utils/helpers';
+import { prescribirSiguiente } from '@/utils/progresion';
 import type { DiaRutina, EjercicioRutina, EntrenamientoRealizado, SerieReal } from '@/types';
 import { useTheme } from '@/hooks/useTheme';
 import type { Theme } from '@/constants/theme';
@@ -42,7 +44,9 @@ interface EstadoEjercicio {
   grupo: string;
   series: SerieEditable[];
   colapsado: boolean;
-  ultimoPeso: number | null;
+  /** Por qué se precargó ese peso/reps (vacío la primera vez). */
+  motivo: string;
+  pesoCorporal: boolean;
 }
 
 /** Peso inicial estimado por grupo para bodyweight / máquinas sin referencia previa. */
@@ -105,28 +109,39 @@ interface CatalogoEjercicio {
   id: string;
   nombre: string;
   grupoMuscular: string;
+  soloPesoCorporal: boolean;
+}
+
+function esSoloPesoCorporal(equipoJson: unknown): boolean {
+  try {
+    const equipo = JSON.parse(String(equipoJson ?? '[]'));
+    return Array.isArray(equipo) && equipo.length > 0 && equipo.every((e) => e === 'peso_corporal');
+  } catch {
+    return false;
+  }
 }
 
 function leerCatalogo(): CatalogoEjercicio[] {
   try {
-    const r = getDatabase().executeSync('SELECT id, nombre, grupo_muscular FROM ejercicios');
+    const r = getDatabase().executeSync('SELECT id, nombre, grupo_muscular, equipo FROM ejercicios');
     return (r.rows as any[]).map((row) => ({
       id: String(row.id),
       nombre: String(row.nombre ?? ''),
-      grupoMuscular: String(row.grupo_muscular ?? '') }));
+      grupoMuscular: String(row.grupo_muscular ?? ''),
+      soloPesoCorporal: esSoloPesoCorporal(row.equipo) }));
   } catch {
     return [];
   }
 }
 
-/** Último peso usado por cada ejercicio de rutina, para precargar las series. */
-function leerUltimosPesos(clienteId: string | null): Map<string, number> {
-  const mapa = new Map<string, number>();
-  if (!clienteId) return mapa;
+/** Series completadas la última vez que se hizo cada ejercicio de este día de la rutina. */
+function leerUltimasSeries(rutinaId: string, diaId: string): Map<string, SerieReal[]> {
+  const mapa = new Map<string, SerieReal[]>();
   try {
     const logs = getDatabase().executeSync(
-      'SELECT ejercicios FROM entrenamientos_realizados WHERE cliente_id = ? ORDER BY fecha DESC LIMIT 10',
-      [clienteId]
+      `SELECT ejercicios FROM entrenamientos_realizados
+       WHERE rutina_semanal_id = ? AND dia_rutina_id = ? ORDER BY fecha DESC LIMIT 6`,
+      [rutinaId, diaId]
     ).rows as any[];
     for (const log of logs) {
       let arr: any[] = [];
@@ -137,11 +152,9 @@ function leerUltimosPesos(clienteId: string | null): Map<string, number> {
         continue;
       }
       for (const er of arr) {
-        const completadas = (Array.isArray(er?.series) ? er.series : []).filter(
-          (s: any) => s?.completada && Number(s.peso) > 0
-        );
+        const completadas = (Array.isArray(er?.series) ? er.series : []).filter((s: any) => s?.completada);
         if (completadas.length > 0 && er.ejercicioRutinaId && !mapa.has(er.ejercicioRutinaId)) {
-          mapa.set(er.ejercicioRutinaId, Number(completadas[completadas.length - 1].peso));
+          mapa.set(er.ejercicioRutinaId, completadas);
         }
       }
     }
@@ -151,26 +164,29 @@ function leerUltimosPesos(clienteId: string | null): Map<string, number> {
   return mapa;
 }
 
-/** Construye el estado editable de un ejercicio a partir de lo prescrito en la rutina. */
+/** Construye el estado editable de un ejercicio: lo prescrito más la progresión desde la última sesión. */
 function crearEstadoEjercicio(
   ej: EjercicioRutina,
   indice: number,
   catalogo: CatalogoEjercicio[],
-  ultimoPeso: number | null
+  ultima: SerieReal[]
 ): EstadoEjercicio {
   const meta = catalogo.find((c) => c.id === ej.ejercicioId);
   const grupo = meta?.grupoMuscular ?? '';
-  const peso = clamp(ultimoPeso ?? PESO_INICIAL_POR_GRUPO[grupo] ?? 20, LIM.peso.min, LIM.peso.max);
-  const reps = clamp(getRepsObjetivo(ej.repeticiones) || 8, LIM.reps.min, LIM.reps.max);
+  const pesoInicial = meta?.soloPesoCorporal ? 0 : PESO_INICIAL_POR_GRUPO[grupo] ?? 20;
+  const prescripcion = prescribirSiguiente(ej, ultima, pesoInicial);
+  const peso = clamp(prescripcion.peso, LIM.peso.min, LIM.peso.max);
   const rpe = clamp(Math.round(Number(ej.rpeObjetivo)) || 8, LIM.rpe.min, LIM.rpe.max);
-  const nSeries = clamp(Math.round(Number(ej.series)) || 1, 1, 20);
   return {
     ejercicioRutinaId: ej.id,
     nombre: meta?.nombre ?? 'Ejercicio',
     grupo,
     colapsado: indice > 1,
-    ultimoPeso,
-    series: Array.from({ length: nSeries }, (_, s) => crearSerie(s + 1, peso, reps, rpe)) };
+    motivo: prescripcion.motivo,
+    pesoCorporal: peso === 0,
+    series: prescripcion.reps.map((reps, s) =>
+      crearSerie(s + 1, peso, clamp(reps || getRepsObjetivo(ej.repeticiones) || 8, LIM.reps.min, LIM.reps.max), rpe)
+    ) };
 }
 
 interface DatosEntrenamiento {
@@ -201,13 +217,13 @@ function leerEntrenamiento(rutinaId: string, diaId: string, clienteSeleccionado:
       ejercicios: (Array.isArray(diaRaw.ejercicios) ? diaRaw.ejercicios : []).filter((e) => e && e.id),
     };
     const catalogo = leerCatalogo();
-    const ultimoPorEjercicio = leerUltimosPesos(clienteId);
+    const ultimas = leerUltimasSeries(rutinaId, diaId);
 
     return {
       nombreRutina: rutinaRow.nombre ?? '',
       clienteId,
       dia,
-      estado: dia.ejercicios.map((ej, i) => crearEstadoEjercicio(ej, i, catalogo, ultimoPorEjercicio.get(ej.id) ?? null)) };
+      estado: dia.ejercicios.map((ej, i) => crearEstadoEjercicio(ej, i, catalogo, ultimas.get(ej.id) ?? [])) };
   } catch (error) {
     console.error('[logger] no se pudo leer el entrenamiento:', error);
     return vacio;
@@ -672,12 +688,10 @@ function Logger({ rutinaId, diaId, onTerminar }: { rutinaId: string; diaId: stri
                     <Text style={styles.ejMeta}>
                       {ejRutina ? `${ejRutina.series}x${ejRutina.repeticiones} · RPE ${ejRutina.rpeObjetivo} · ${ejRutina.descansoSeg}s` : ''}
                     </Text>
-                    {ejRutina?.progresion?.tipo ? (
-                      <Text style={styles.ejProgresion}>
-                        {getProgresionLabel(ejRutina.progresion)}
-                        {e.ultimoPeso ? ` · última vez: ${pesoATexto(e.ultimoPeso)}kg` : ''}
-                      </Text>
+                    {ejRutina?.progresion?.tipo && !(e.pesoCorporal && ejRutina.progresion.tipo === 'lineal') ? (
+                      <Text style={styles.ejProgresion}>{getProgresionLabel(ejRutina.progresion)}</Text>
                     ) : null}
+                    {e.motivo ? <Text style={styles.ejMotivo}>{e.motivo}</Text> : null}
                   </View>
                   <View style={styles.ejVolumen}>
                     <Text style={styles.ejVolumenValue}>{Math.round(volEjercicio)}</Text>
@@ -781,7 +795,7 @@ function Logger({ rutinaId, diaId, onTerminar }: { rutinaId: string; diaId: stri
             </View>
             {rpePromedio > 0 && (
               <Text style={styles.rpeHint}>
-                RPE promedio real de las series marcadas: {rpePromedio.toFixed(1)}
+                RPE promedio real de las series marcadas: {formatNumero(rpePromedio)}
                 {rpeElegido != null ? ' · RPE de sesión elegido manualmente' : ''}
               </Text>
             )}
@@ -886,6 +900,7 @@ const createStyles = (t: Theme) => StyleSheet.create({
   ejNombre: { fontSize: 14, fontWeight: '600', color: t.colors.text },
   ejMeta: { fontSize: 11, color: t.colors.textMuted, marginTop: 2 },
   ejProgresion: { fontSize: 10, color: t.colors.success, marginTop: 2 },
+  ejMotivo: { fontSize: 11, fontWeight: '600', color: t.colors.primary, marginTop: 2 },
   ejVolumen: { alignItems: 'flex-end' },
   ejVolumenValue: { fontSize: 15, fontWeight: '700', color: t.colors.text },
   ejVolumenLabel: { fontSize: 9, color: t.colors.textSubtle },

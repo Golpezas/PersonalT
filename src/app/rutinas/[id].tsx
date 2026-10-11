@@ -14,7 +14,7 @@ import { useTheme } from '@/hooks/useTheme';
 import { useRutinasStore, useUIStore } from '@/stores';
 import { Button, Card, CardHeader, CardContent, Badge, EmptyState, ScreenHeader } from '@/components/ui';
 import { formatHecho, getGrupoMuscularLabel, getProgresionLabel } from '@/utils/helpers';
-import { eliminarRutina, leerDiasHechosEstaSemana, leerRutina } from '@/services/rutinas';
+import { eliminarRutina, etiquetaSemana, leerDiasHechosEstaSemana, leerRutina, leerSemanaActual } from '@/services/rutinas';
 import { GRUPOS_MUSCULARES } from '@/constants';
 
 type Params = { id: string };
@@ -32,10 +32,12 @@ export default function RutinaDetalleScreen() {
   const rutina = useMemo(() => leerRutina(id), [id]);
 
   const [diasHechos, setDiasHechos] = useState<Map<string, string>>(() => new Map());
+  const [semanaActual, setSemanaActual] = useState<number | null>(null);
   useFocusEffect(
     useCallback(() => {
       setDiasHechos(leerDiasHechosEstaSemana(id));
-    }, [id])
+      setSemanaActual(rutina ? leerSemanaActual(rutina) : null);
+    }, [id, rutina])
   );
 
   const resumen = useMemo(() => {
@@ -95,7 +97,9 @@ export default function RutinaDetalleScreen() {
     <View style={[styles.flex, { backgroundColor: t.colors.bg, paddingTop: insets.top }]}>
       <ScreenHeader
         title={rutina.nombre}
-        subtitle={`Mesociclo ${rutina.mesociclo} · Semanas ${rutina.semanaInicio}–${rutina.semanaFin}`}
+        subtitle={`Mesociclo ${rutina.mesociclo} · ${
+          semanaActual !== null ? etiquetaSemana(semanaActual, rutina) : `Semanas ${rutina.semanaInicio}–${rutina.semanaFin}`
+        }`}
         onBack={volver}
       />
 

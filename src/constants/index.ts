@@ -68,7 +68,7 @@ export const TIPOS_PROGRESION = [
   { 
     id: 'lineal', 
     label: 'Progresión Lineal', 
-    description: 'Aumentar peso fijo cada N semanas',
+    description: 'Aumentar peso fijo al completar todas las series en el tope del rango',
     fields: ['incrementoPeso', 'frecuenciaSemanas'] },
   { 
     id: 'double_progression', 

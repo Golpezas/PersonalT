@@ -230,11 +230,11 @@ export const calculateAverageRPE = (series: Array<{ rpe: number }>): number => {
 export const getProgresionLabel = (progresion: ProgresionPlan): string => {
   switch (progresion.tipo) {
     case 'lineal':
-      return `+${progresion.incrementoPeso}kg cada ${progresion.frecuenciaSemanas} sem`;
+      return `+${formatNumero(progresion.incrementoPeso)} kg al completar las reps`;
     case 'double_progression':
-      return `${progresion.repObjetivoMax} reps → +${progresion.incrementoPeso}kg`;
+      return `${progresion.repObjetivoMax} reps → +${formatNumero(progresion.incrementoPeso)} kg`;
     case 'rpe_based':
-      return `RPE ${progresion.rpeMeta} → ajustar ${progresion.ajustePeso}kg`;
+      return `RPE ${progresion.rpeMeta} → ajustar ${formatNumero(progresion.ajustePeso)} kg`;
     case 'personalizada':
       return progresion.descripcion;
   }

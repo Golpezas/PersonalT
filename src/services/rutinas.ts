@@ -6,7 +6,7 @@
  * completan nombre y grupo muscular desde el catálogo `ejercicios`.
  */
 
-import { startOfWeek } from 'date-fns';
+import { differenceInCalendarWeeks, startOfWeek } from 'date-fns';
 import { getDatabase } from '@/db/database';
 import type { DiaRutina, EjercicioRutina, RutinaSemanal } from '@/types';
 
@@ -114,6 +114,32 @@ export function leerDiasHechosEstaSemana(rutinaId: string): Map<string, string> 
     console.error('[rutinas] error al leer días hechos:', error);
   }
   return mapa;
+}
+
+/**
+ * Semana del mesociclo en curso, en semanas calendario (lunes a domingo) desde el
+ * primer entrenamiento con la rutina, o desde que se creó si todavía no hay ninguno.
+ */
+export function leerSemanaActual(rutina: Pick<RutinaSemanal, 'id' | 'creadoEn' | 'semanaInicio'>): number {
+  let inicio = rutina.creadoEn;
+  try {
+    const r = getDatabase().executeSync(
+      'SELECT MIN(fecha) AS fecha FROM entrenamientos_realizados WHERE rutina_semanal_id = ?',
+      [rutina.id]
+    ).rows[0] as Row;
+    if (r?.fecha && String(r.fecha) < inicio) inicio = String(r.fecha);
+  } catch (error) {
+    console.error('[rutinas] error al leer la semana actual:', error);
+  }
+  const semanas = differenceInCalendarWeeks(new Date(), new Date(inicio), { weekStartsOn: 1 });
+  return rutina.semanaInicio + Math.max(0, semanas);
+}
+
+/** "Semana 2 de 4", o el rango con "terminado" si ya pasó la última semana. */
+export function etiquetaSemana(semana: number, rutina: Pick<RutinaSemanal, 'semanaInicio' | 'semanaFin'>): string {
+  return semana <= rutina.semanaFin
+    ? `Semana ${semana} de ${rutina.semanaFin}`
+    : `S${rutina.semanaInicio}–${rutina.semanaFin} terminado`;
 }
 
 /** Elimina la rutina. Los entrenamientos registrados con ella se borran en cascada. */
