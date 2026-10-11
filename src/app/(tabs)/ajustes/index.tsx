@@ -456,7 +456,7 @@ export default function AjustesScreen() {
         ))}
 
         <View style={styles.footer}>
-          <Logo size={26} />
+          <Logo size={26} style={{ alignSelf: 'center' }} />
           <Text style={[t.typography.caption, { color: t.colors.textSubtle }]}>v{VERSION}</Text>
         </View>
       </ScrollView>
