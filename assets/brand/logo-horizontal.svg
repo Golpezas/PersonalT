@@ -1,0 +1,19 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1580" height="420" viewBox="0 0 1580 420">
+    <rect width="1580" height="420" fill="#111111"/>
+    <g transform="translate(40 30) scale(0.36)">
+    <defs>
+      <mask id="corte" maskUnits="userSpaceOnUse" x="0" y="0" width="1000" height="1000">
+        <rect width="1000" height="1000" fill="#fff"/>
+        <path d="M 230 800 L 395 640 L 485 705 L 758.9 342.1" fill="none" stroke="#000" stroke-width="84" stroke-linejoin="round" stroke-miterlimit="4" stroke-linecap="butt"/><polygon points="842.0,232.0 825.1,407.1 678.2,296.3" fill="#000" stroke="#000" stroke-width="30" stroke-linejoin="round"/>
+      </mask>
+    </defs>
+    <g mask="url(#corte)">
+      <path d="M 839.2 712.0 A 400 400 0 1 1 649.8 129.1" fill="none" stroke="#FF6B00" stroke-width="58" stroke-linecap="round"/>
+      <path d="M 888.1 403.2 A 400 400 0 0 1 880.4 623.6" fill="none" stroke="#FFC700" stroke-width="58" stroke-linecap="round"/>
+      <g fill="#FF6B00"><rect x="200" y="445" width="34" height="70" rx="12"/><rect x="240" y="395" width="46" height="170" rx="16"/><rect x="292" y="350" width="62" height="260" rx="20"/><rect x="354" y="461" width="292" height="38" rx="8"/><rect x="646" y="350" width="62" height="260" rx="20"/><rect x="714" y="395" width="46" height="170" rx="16"/><rect x="766" y="445" width="34" height="70" rx="12"/></g>
+    </g>
+    <path d="M 230 800 L 395 640 L 485 705 L 758.9 342.1" fill="none" stroke="#FFC700" stroke-width="54" stroke-linejoin="miter" stroke-miterlimit="4" stroke-linecap="butt"/><polygon points="842.0,232.0 825.1,407.1 678.2,296.3" fill="#FFC700" stroke="#FFC700" stroke-width="0" stroke-linejoin="round"/></g>
+    <text x="440" y="275" font-family="Poppins" font-weight="700" font-size="200" letter-spacing="-4">
+      <tspan fill="#FF6B00">Kaizen</tspan><tspan fill="#FFC700">Fit</tspan>
+    </text>
+  </svg>

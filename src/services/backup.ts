@@ -124,7 +124,7 @@ function writeJsonFile(file: File, json: string) {
 /** Guarda el backup en el directorio de documento del dispositivo. Devuelve el path. */
 export function saveBackupFile(): { uri: string; bytes: number } {
   const json = serialize(collectBackup(true));
-  const file = new File(Paths.document, `personaltrainer-backup-${timestamp()}.json`);
+  const file = new File(Paths.document, `kaizenfit-backup-${timestamp()}.json`);
   writeJsonFile(file, json);
   return { uri: file.uri, bytes: file.size };
 }
@@ -133,7 +133,7 @@ export function saveBackupFile(): { uri: string; bytes: number } {
 export async function exportAndShare(): Promise<{ uri: string; total: number; shared: boolean }> {
   const backup = collectBackup(true);
   const json = serialize(backup);
-  const file = new File(Paths.cache, `personaltrainer-backup-${timestamp()}.json`);
+  const file = new File(Paths.cache, `kaizenfit-backup-${timestamp()}.json`);
   writeJsonFile(file, json);
 
   const total = TABLES.reduce((acc, t) => acc + (backup.conteos[t] ?? 0), 0);

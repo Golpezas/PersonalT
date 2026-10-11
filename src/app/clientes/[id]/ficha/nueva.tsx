@@ -308,7 +308,7 @@ export default function FichaFormScreen() {
               </View>
 
               <View style={styles.tipBox}>
-                <Ionicons name="information-circle-outline" size={20} color="#0ea5e9" />
+                <Ionicons name="information-circle-outline" size={20} color={t.colors.primary} />
                 <Text style={styles.tipText}>Asegúrate de medir en las mismas condiciones siempre: misma hora, en ayunas, post-baño.</Text>
               </View>
             </CardContent>
@@ -484,7 +484,7 @@ const createStyles = (t: Theme) => StyleSheet.create({
   campos: { gap: 16 },
   tipBox: {
     flexDirection: 'row', gap: 8, alignItems: 'flex-start',
-    backgroundColor: 'rgba(14, 165, 233, 0.08)', borderRadius: 10, padding: 12, marginTop: 16 },
+    backgroundColor: t.colors.primarySoft, borderRadius: 10, padding: 12, marginTop: 16 },
   tipText: { flex: 1, fontSize: 13, color: t.colors.text, lineHeight: 20},
   perimetroRow: {
     flexDirection: 'row', alignItems: 'center', gap: 8,

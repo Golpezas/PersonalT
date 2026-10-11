@@ -12,7 +12,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useTheme } from '@/hooks/useTheme';
 import { useClientesStore, useUIStore } from '@/stores';
-import { Button, Input, Avatar, EmptyState, Badge } from '@/components/ui';
+import { Button, Input, Avatar, EmptyState, Badge, Logo } from '@/components/ui';
 import { formatDate } from '@/utils/helpers';
 import { getDatabase, runTransaction } from '@/db/database';
 
@@ -166,6 +166,7 @@ export default function ClientesScreen() {
         ]}
       >
         <View style={{ flex: 1 }}>
+          <Logo size={22} style={{ marginBottom: t.spacing.sm }} />
           <Text style={[t.typography.display, { color: t.colors.text }]}>Clientes</Text>
           <Text style={[t.typography.small, { color: t.colors.textMuted, marginTop: 2 }]}>
             {clientes.length === 0

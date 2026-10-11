@@ -97,7 +97,7 @@ export const TIPOS_META = [
 ] as const;
 
 export const ESTADOS_META = [
-  { id: 'activa', label: 'Activa', color: '#0ea5e9' },
+  { id: 'activa', label: 'Activa', color: '#FF6B00' },
   { id: 'lograda', label: 'Lograda', color: '#22c55e' },
   { id: 'pausada', label: 'Pausada', color: '#f59e0b' },
   { id: 'cancelada', label: 'Cancelada', color: '#ef4444' },
@@ -146,7 +146,7 @@ export const VALIDATION_LIMITS = {
 
 export const CHART_CONFIG = {
   colors: {
-    primary: '#0ea5e9',
+    primary: '#FF6B00',
     success: '#22c55e',
     warning: '#f59e0b',
     danger: '#ef4444',
@@ -154,7 +154,7 @@ export const CHART_CONFIG = {
     pink: '#ec4899',
     cyan: '#06b6d4',
     lime: '#84cc16',
-    orange: '#f97316',
+    orange: '#0ea5e9',
     indigo: '#6366f1' },
   gridColor: 'rgba(148, 163, 184, 0.2)',
   textColor: '#64748b',

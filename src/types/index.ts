@@ -1,5 +1,5 @@
 /**
- * TypeScript Types for the Personal Trainer App
+ * TypeScript Types for the KaizenFit App
  * Mirrors the database schema with proper TypeScript types
  */
 

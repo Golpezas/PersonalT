@@ -5,15 +5,34 @@
  * y sombras. Los componentes de UI (`src/components/ui`) los consumen siempre a
  * través de `useTheme()`, así un cambio de paleta se propaga a toda la app.
  *
- * Nota: no se usan `fontFamily` propias (Inter/…); el sistema ya provee Roboto
- * en Android y San Francisco en iOS, que se ven nativos y cuestan 0 KB.
+ * Nota: el texto de la app usa la fuente del sistema (Roboto / San Francisco).
+ * Poppins Bold se reserva para el logotipo y va embebida con el plugin de expo-font.
  */
+
+// ============================================
+// Marca KaizenFit (colores oficiales)
+// ============================================
+export const brand = {
+  background_dark: '#111111',
+  primary_orange: '#FF6B00',
+  accent_yellow: '#FFC700',
+  text_white: '#FFFFFF',
+} as const;
+
+/** En Android la familia la define el plugin de expo-font; en iOS sale del archivo .ttf. */
+export const brandFont = { fontFamily: 'Poppins', fontWeight: '700' as const };
 
 // ============================================
 // Paleta base
 // ============================================
 export const palette = {
-  // Marca — celeste energético (identidad de la app),
+  // Marca — naranja KaizenFit (#FF6B00) y sus variantes
+  orangeBrand: brand.primary_orange,
+  orangeBrandDark: '#E05E00',
+  orangeBrandLight: '#FF8A33',
+  orangeBrand100: '#FFEDDF',
+
+  // Celeste: se mantiene como color de gráficos/categorías
   sky50: '#F0F9FF',
   sky100: '#E0F2FE',
   sky200: '#BAE6FD',
@@ -124,10 +143,10 @@ export const lightColors: ThemeColors = {
   textSubtle: palette.slate400,
   textInverse: '#FFFFFF',
 
-  primary: palette.sky500,
-  primaryDark: palette.sky600,
-  primarySoft: palette.sky100,
-  onPrimary: '#FFFFFF',
+  primary: palette.orangeBrand,
+  primaryDark: palette.orangeBrandDark,
+  primarySoft: palette.orangeBrand100,
+  onPrimary: brand.text_white,
 
   success: palette.green600,
   successSoft: palette.green100,
@@ -148,10 +167,10 @@ export const lightColors: ThemeColors = {
     grid: 'rgba(100, 116, 139, 0.16)',
     axis: palette.slate300,
     series: [
-      palette.sky500,
+      palette.orangeBrand,
       palette.violet500,
       palette.green500,
-      palette.orange500,
+      palette.sky500,
       palette.pink500,
       palette.cyan500,
       palette.indigo500,
@@ -166,24 +185,25 @@ export const lightColors: ThemeColors = {
     palette.amber500,
   ] };
 
+// Oscuro: neutros sobre la base de marca #111111 (sin tinte azul).
 export const darkColors: ThemeColors = {
-  bg: '#0B0F19',
-  surface: '#151B2B',
-  surfaceAlt: '#1D2436',
-  chrome: '#0B0F19',
+  bg: brand.background_dark,
+  surface: '#1B1B1B',
+  surfaceAlt: '#252525',
+  chrome: brand.background_dark,
 
-  border: '#252D42',
-  borderStrong: '#39435C',
+  border: '#2C2C2C',
+  borderStrong: '#424242',
 
-  text: '#F1F5F9',
-  textMuted: '#94A3B8',
-  textSubtle: '#64748B',
-  textInverse: '#0F172A',
+  text: '#F5F5F5',
+  textMuted: '#A3A3A3',
+  textSubtle: '#737373',
+  textInverse: brand.background_dark,
 
-  primary: palette.sky400,
-  primaryDark: palette.sky300,
-  primarySoft: 'rgba(14, 165, 233, 0.16)',
-  onPrimary: '#04121E',
+  primary: palette.orangeBrand,
+  primaryDark: palette.orangeBrandLight,
+  primarySoft: 'rgba(255, 107, 0, 0.16)',
+  onPrimary: brand.background_dark,
 
   success: '#4ADE80',
   successSoft: 'rgba(34, 197, 94, 0.16)',
@@ -194,27 +214,27 @@ export const darkColors: ThemeColors = {
   accent: '#A78BFA',
   accentSoft: 'rgba(139, 92, 246, 0.16)',
 
-  input: '#111827',
-  placeholder: '#64748B',
+  input: '#1B1B1B',
+  placeholder: '#737373',
 
   shadow: '#000000',
   overlay: 'rgba(0, 0, 0, 0.6)',
 
   chart: {
-    grid: 'rgba(148, 163, 184, 0.18)',
-    axis: '#39435C',
+    grid: 'rgba(163, 163, 163, 0.16)',
+    axis: '#424242',
     series: [
-      palette.sky400,
+      palette.orangeBrand,
       '#A78BFA',
       '#4ADE80',
-      '#FB923C',
+      palette.sky400,
       '#F472B6',
       '#22D3EE',
       '#818CF8',
       '#A3E635',
     ] },
   heatmap: [
-    '#1D2436',
+    '#252525',
     '#4A3B12',
     '#6B5410',
     '#8A6A0E',
@@ -297,6 +317,8 @@ export function shadow(isDark: boolean, level: 1 | 2 | 3) {
 export interface Theme {
   dark: boolean;
   colors: ThemeColors;
+  /** Colores oficiales de la marca, iguales en claro y oscuro. */
+  brand: typeof brand;
   spacing: typeof spacing;
   radius: typeof radius;
   typography: typeof typography;
@@ -309,6 +331,7 @@ export function buildTheme(dark: boolean): Theme {
   return {
     dark,
     colors: dark ? darkColors : lightColors,
+    brand,
     spacing,
     radius,
     typography,

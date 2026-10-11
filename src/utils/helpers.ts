@@ -488,7 +488,7 @@ export const formatFileSize = (bytes: number): string => {
 // Color Helpers (for charts)
 // ============================================
 export const CHART_COLORS = [
-  '#0ea5e9', // primary
+  '#FF6B00', // primary
   '#22c55e', // success
   '#f59e0b', // warning
   '#ef4444', // danger
@@ -496,7 +496,7 @@ export const CHART_COLORS = [
   '#ec4899', // pink
   '#06b6d4', // cyan
   '#84cc16', // lime
-  '#f97316', // orange
+  '#0ea5e9', // sky
   '#6366f1', // indigo
 ];
 

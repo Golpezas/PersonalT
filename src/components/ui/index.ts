@@ -6,6 +6,7 @@ export { Button, type ButtonVariant, type ButtonSize } from './Button';
 export { Input } from './Input';
 export { Card, CardHeader, CardContent, CardFooter } from './Card';
 export { Modal, Sheet, Toast } from './Modal';
+export { Logo } from './Logo';
 export {
   ScreenHeader,
   SectionTitle,

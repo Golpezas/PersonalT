@@ -1106,5 +1106,5 @@ const createStyles = (t: Theme) => StyleSheet.create({
   metaFill: { height: '100%', backgroundColor: CHART_CONFIG.colors.primary, borderRadius: 3 },
   metaBadge: {
     minWidth: 48, paddingVertical: 6, paddingHorizontal: 8, borderRadius: 12,
-    backgroundColor: 'rgba(14,165,233,0.12)', alignItems: 'center' },
+    backgroundColor: 'rgba(255,107,0,0.12)', alignItems: 'center' },
   metaPercent: { fontSize: 13, fontWeight: '700', color: t.colors.primary} });

@@ -9,7 +9,7 @@ import { useFocusEffect } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useTheme } from '@/hooks/useTheme';
 import { useUIStore } from '@/stores';
-import { Card, CardHeader, CardContent } from '@/components/ui';
+import { Card, CardHeader, CardContent, Logo } from '@/components/ui';
 import { STORAGE_KEYS } from '@/constants';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import Constants from 'expo-constants';
@@ -280,7 +280,7 @@ export default function AjustesScreen() {
 
   const handleAbout = () => {
     Alert.alert(
-      'Personal Trainer',
+      'KaizenFit',
       `Versión ${VERSION}\n\n` + 'App para entrenadores personales especializada en hipertrofia.\n\nDesarrollado con React Native + Expo',
       [{ text: 'OK' }]
     );
@@ -455,9 +455,10 @@ export default function AjustesScreen() {
           </Card>
         ))}
 
-        <Text style={[t.typography.caption, { color: t.colors.textSubtle, textAlign: 'center', paddingVertical: 12 }]}>
-          Personal Trainer v{VERSION}
-        </Text>
+        <View style={styles.footer}>
+          <Logo size={26} />
+          <Text style={[t.typography.caption, { color: t.colors.textSubtle }]}>v{VERSION}</Text>
+        </View>
       </ScrollView>
 
       {ocupado && (
@@ -481,6 +482,7 @@ export default function AjustesScreen() {
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#f8fafc' },
   scrollContent: { padding: 16, gap: 16, paddingBottom: 100 },
+  footer: { alignItems: 'center', gap: 6, paddingVertical: 12 },
   headerTitle: {
     fontSize: 28,
     fontWeight: '700',

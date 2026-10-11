@@ -1,6 +1,6 @@
 {
   "expo": {
-    "name": "Personal Trainer",
+    "name": "KaizenFit",
     "slug": "PersonalTrainer",
     "main": "expo-router/entry",
     "description": "Gestión de clientes, assessment y rutinas de hipertrofia offline-first",
@@ -14,13 +14,13 @@
     ],
     "ios": {
       "supportsTablet": true,
-      "bundleIdentifier": "com.personaltrainer.app"
+      "bundleIdentifier": "com.personaltrainer.app",
+      "icon": "./assets/icon.png"
     },
     "android": {
       "adaptiveIcon": {
-        "backgroundColor": "#0ea5e9",
+        "backgroundColor": "#111111",
         "foregroundImage": "./assets/android-icon-foreground.png",
-        "backgroundImage": "./assets/android-icon-background.png",
         "monochromeImage": "./assets/android-icon-monochrome.png"
       },
       "package": "com.personaltrainer.app",
@@ -62,7 +62,30 @@
           "image": "./assets/splash-icon.png",
           "imageWidth": 200,
           "resizeMode": "contain",
-          "backgroundColor": "#0ea5e9"
+          "backgroundColor": "#111111"
+        }
+      ],
+      [
+        "expo-font",
+        {
+          "android": {
+            "fonts": [
+              {
+                "fontFamily": "Poppins",
+                "fontDefinitions": [
+                  {
+                    "path": "./assets/fonts/Poppins-Bold.ttf",
+                    "weight": 700
+                  }
+                ]
+              }
+            ]
+          },
+          "ios": {
+            "fonts": [
+              "./assets/fonts/Poppins-Bold.ttf"
+            ]
+          }
         }
       ],
       [

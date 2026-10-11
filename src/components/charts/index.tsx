@@ -551,6 +551,6 @@ const styles = StyleSheet.create({
   heatScaleCell: { width: 13, height: 13, borderRadius: 3 },
   picker: { flexDirection: 'row', gap: 6, marginBottom: 12, flexWrap: 'wrap' },
   pickerItem: { paddingHorizontal: 12, paddingVertical: 6, borderRadius: 12, backgroundColor: '#f1f5f9' },
-  pickerItemActive: { backgroundColor: '#0ea5e9' },
+  pickerItemActive: { backgroundColor: '#FF6B00' },
   pickerText: { fontSize: 12, fontWeight: '600', color: '#64748b'},
   pickerTextActive: { color: '#fff' } });
