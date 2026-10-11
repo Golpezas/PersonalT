@@ -3,22 +3,38 @@
  * Todo es cálculo puro sobre datos ya leídos de SQLite (sin I/O aquí).
  */
 
-import { calculateVolume, estimate1RM, getWeekNumber } from './helpers';
+import { differenceInCalendarDays, parseISO } from 'date-fns';
+import { calculateVolume, estimate1RM, fechaLocalISO } from './helpers';
 import type { EntrenamientoRealizado } from '@/types';
 
-/** Semana ISO-ISO del año de una fecha (para agrupar el volumen). */
-export function semanaDe(fecha: string): number {
-  return getWeekNumber(new Date(fecha));
+/**
+ * Semana del programa (1, 2, …) de una fecha contando desde `inicio`, igual que
+ * los check-ins (S1, S2…). Fechas anteriores al inicio caen en la semana 1.
+ */
+export function semanaDe(fecha: string, inicio: string): number {
+  const dias = differenceInCalendarDays(parseISO(fecha), parseISO(inicio));
+  return Math.max(1, Math.floor(dias / 7) + 1);
+}
+
+/** Inicio del programa: la ficha inicial o el primer entrenamiento, lo que sea anterior. */
+function inicioPrograma(entrenamientos: EntrenamientoRealizado[], fechaFicha?: string): string {
+  const fechas = entrenamientos.map((e) => fechaLocalISO(new Date(e.fecha)));
+  if (fechaFicha) fechas.push(fechaFicha.slice(0, 10));
+  return fechas.sort()[0] ?? '';
 }
 
 /**
- * Volumen total (kg) por semana, ordenado cronológicamente.
+ * Volumen total (kg) por semana del programa, ordenado cronológicamente.
  * Ideal para un BarChart: [{ semana, volumen }]
  */
-export function volumenPorSemana(entrenamientos: EntrenamientoRealizado[]): { semana: number; volumen: number }[] {
+export function volumenPorSemana(
+  entrenamientos: EntrenamientoRealizado[],
+  fechaFicha?: string
+): { semana: number; volumen: number }[] {
+  const inicio = inicioPrograma(entrenamientos, fechaFicha);
   const porSemana = new Map<number, number>();
   for (const e of entrenamientos) {
-    const sem = semanaDe(e.fecha);
+    const sem = semanaDe(e.fecha, inicio);
     const vol = e.ejercicios.reduce((acc, ej) => acc + calculateVolume(ej.series), 0);
     porSemana.set(sem, (porSemana.get(sem) ?? 0) + vol);
   }
@@ -28,10 +44,14 @@ export function volumenPorSemana(entrenamientos: EntrenamientoRealizado[]): { se
 }
 
 /** Duración total (min) por semana. */
-export function duracionPorSemana(entrenamientos: EntrenamientoRealizado[]): { semana: number; minutos: number }[] {
+export function duracionPorSemana(
+  entrenamientos: EntrenamientoRealizado[],
+  fechaFicha?: string
+): { semana: number; minutos: number }[] {
+  const inicio = inicioPrograma(entrenamientos, fechaFicha);
   const porSemana = new Map<number, number>();
   for (const e of entrenamientos) {
-    const sem = semanaDe(e.fecha);
+    const sem = semanaDe(e.fecha, inicio);
     porSemana.set(sem, (porSemana.get(sem) ?? 0) + (e.duracionMin || 0));
   }
   return [...porSemana.entries()].sort((a, b) => a[0] - b[0]).map(([semana, minutos]) => ({ semana, minutos }));

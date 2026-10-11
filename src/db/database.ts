@@ -6,6 +6,8 @@
 import { open, type DB } from '@op-engineering/op-sqlite';
 import { CREATE_TABLES_SQL, MIGRATIONS, DATABASE_NAME, DATABASE_VERSION } from './schema';
 import type { CheckinSemanal, Ejercicio, EntrenamientoRealizado, FichaInicial } from '@/types';
+import { EJERCICIOS_ISOMETRICOS, NOTA_SEGUNDOS, PROGRESION_SEGUNDOS } from '@/constants/plantillasRutina';
+import { esUriEnCache, rescatarFoto } from '@/services/fotos';
 
 let dbInstance: DB | null = null;
 let initialized = false;
@@ -45,6 +47,71 @@ function setupDatabase(db: DB) {
   // Repara instalaciones con user_version al día pero tablas faltantes.
   ensureSchema(db);
   seedExercisesIfEmpty(db);
+  repararProgresionIsometricos(db);
+  rescatarFotosEnCache(db);
+}
+
+/** Fotos guardadas antes de copiarlas a almacenamiento permanente: se mueven mientras sigan en la caché. */
+function rescatarFotosEnCache(db: DB) {
+  for (const tabla of ['fichas_iniciales', 'checkins_semanales']) {
+    try {
+      const rows = db.executeSync(`SELECT id, fotos FROM ${tabla} WHERE fotos LIKE '%/cache/%'`).rows as any[];
+      for (const row of rows) {
+        const fotos = parseJson<Record<string, string>>(row.fotos, {});
+        let cambios = false;
+        for (const [angulo, uri] of Object.entries(fotos)) {
+          if (!esUriEnCache(uri)) continue;
+          const nueva = rescatarFoto(uri);
+          if (nueva !== uri) {
+            fotos[angulo] = nueva;
+            cambios = true;
+          }
+        }
+        if (cambios) db.executeSync(`UPDATE ${tabla} SET fotos = ? WHERE id = ?`, [JSON.stringify(fotos), row.id]);
+      }
+    } catch (error) {
+      console.error(`[db] no se pudieron rescatar fotos de ${tabla}:`, error);
+    }
+  }
+}
+
+/**
+ * Rutinas creadas con plantillas viejas guardaron los isométricos con la progresión
+ * lineal por defecto (+2,5 kg/semana). Se pasan a la progresión en segundos.
+ * Idempotente: corre en cada arranque porque un respaldo restaurado puede traerlas.
+ */
+function repararProgresionIsometricos(db: DB) {
+  try {
+    const rows = db.executeSync(
+      `SELECT id, dias FROM rutinas_semanales WHERE ${EJERCICIOS_ISOMETRICOS.map(() => 'dias LIKE ?').join(' OR ')}`,
+      EJERCICIOS_ISOMETRICOS.map((id) => `%"${id}"%`)
+    ).rows as any[];
+    const ahora = new Date().toISOString();
+    for (const row of rows) {
+      const dias = JSON.parse(row.dias ?? '[]');
+      if (!Array.isArray(dias)) continue;
+      let cambios = false;
+      for (const dia of dias) {
+        for (const ej of Array.isArray(dia?.ejercicios) ? dia.ejercicios : []) {
+          const p = ej?.progresion;
+          const esDefault = p?.tipo === 'lineal' && p.incrementoPeso === 2.5 && p.frecuenciaSemanas === 1;
+          if (!EJERCICIOS_ISOMETRICOS.includes(ej?.ejercicioId) || !esDefault) continue;
+          ej.progresion = PROGRESION_SEGUNDOS;
+          if (!ej.notas) ej.notas = NOTA_SEGUNDOS;
+          cambios = true;
+        }
+      }
+      if (cambios) {
+        db.executeSync('UPDATE rutinas_semanales SET dias = ?, actualizado_en = ? WHERE id = ?', [
+          JSON.stringify(dias),
+          ahora,
+          row.id,
+        ]);
+      }
+    }
+  } catch (error) {
+    console.error('[db] no se pudo reparar la progresión de isométricos:', error);
+  }
 }
 
 /**

@@ -314,7 +314,7 @@ export default function ProgresoScreen() {
   );
 
   // ---- Fuerza ----
-  const volumenSemanal = useMemo(() => volumenPorSemana(entrenamientos), [entrenamientos]);
+  const volumenSemanal = useMemo(() => volumenPorSemana(entrenamientos, ficha?.fecha), [entrenamientos, ficha?.fecha]);
   const top1RM = useMemo(() => mejores1RM(entrenamientos, nombresRutina), [entrenamientos, nombresRutina]);
   const evolucion = useMemo(
     () => (ejercicio1RM ? evolucion1RM(entrenamientos, nombresRutina, ejercicio1RM) : []),

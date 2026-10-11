@@ -9,11 +9,21 @@ import { router, useLocalSearchParams } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useProgresoStore, useUIStore } from '@/stores';
-import { Button, Card, CardContent, Input } from '@/components/ui';
+import { Button, Card, CardContent, Input, ScreenHeader } from '@/components/ui';
 import { fichaInicialSchema } from '@/schemas/validation';
 import * as ImagePicker from 'expo-image-picker';
-import { generateId, createEmptyPerimetros, createEmptyFotos, getPerimetroLabel, checkAsymmetry, fechaLocalISO } from '@/utils/helpers';
-import { runTransaction } from '@/db/database';
+import {
+  generateId,
+  createEmptyPerimetros,
+  createEmptyFotos,
+  getPerimetroLabel,
+  checkAsymmetry,
+  fechaLocalISO,
+  formatDate,
+  formatNumero,
+} from '@/utils/helpers';
+import { leerFichaInicial, runTransaction } from '@/db/database';
+import { guardarFotoPermanente } from '@/services/fotos';
 import { useTheme } from '@/hooks/useTheme';
 import type { Theme } from '@/constants/theme';
 import type { Perimetros } from '@/types';
@@ -66,25 +76,36 @@ export default function FichaFormScreen() {
     Object.fromEntries(Object.keys(createEmptyPerimetros()).map((k) => [k, ''])) as Record<keyof Perimetros, string>
   );
   const [fotos, setFotos] = useState(createEmptyFotos());
-  const [observaciones, setObservaciones] = useState('');
+  // Al rehacer: las medidas anteriores quedan como referencia y las notas se precargan.
+  const [fichaAnterior] = useState(() => (id ? leerFichaInicial(id) : null));
+  const [observaciones, setObservaciones] = useState(fichaAnterior?.observaciones ?? '');
+  const [lesionLimitaciones, setLesionLimitaciones] = useState(fichaAnterior?.lesionLimitaciones ?? '');
+
+  const referencia = (valor: number | undefined, ejemplo: string) =>
+    fichaAnterior ? (valor ? `Antes: ${formatNumero(valor)}` : '') : `Ej: ${ejemplo}`;
+
+  /** Atrás: paso anterior; en el primero, sale (confirmando si hay datos cargados). */
+  const volver = (): boolean => {
+    if (currentStep > 0) {
+      irAPaso(currentStep - 1);
+      return true;
+    }
+    if (!pesoTexto && !grasaTexto && !musculoTexto) {
+      router.back();
+      return true;
+    }
+    Alert.alert('Salir de la ficha', 'Los datos cargados no se guardarán.', [
+      { text: 'Seguir', style: 'cancel' },
+      { text: 'Descartar', style: 'destructive', onPress: () => router.back() },
+    ]);
+    return true;
+  };
 
   // Sin deps: se re-suscribe en cada render para leer el paso y los datos actuales.
   useEffect(() => {
-    const sub = BackHandler.addEventListener('hardwareBackPress', () => {
-      if (currentStep > 0) {
-        irAPaso(currentStep - 1);
-        return true;
-      }
-      if (!pesoTexto && !grasaTexto && !musculoTexto) return false;
-      Alert.alert('Salir de la ficha', 'Los datos cargados no se guardarán.', [
-        { text: 'Seguir', style: 'cancel' },
-        { text: 'Descartar', style: 'destructive', onPress: () => router.back() },
-      ]);
-      return true;
-    });
+    const sub = BackHandler.addEventListener('hardwareBackPress', volver);
     return () => sub.remove();
   });
-  const [lesionLimitaciones, setLesionLimitaciones] = useState('');
 
   const perimetros = useMemo(
     () =>
@@ -95,28 +116,36 @@ export default function FichaFormScreen() {
   );
 
   const pickFoto = async (tipo: keyof typeof fotos) => {
-    const result = await ImagePicker.launchImageLibraryAsync({
-      mediaTypes: ['images'],
-      allowsEditing: true,
-      aspect: [3, 4],
-      quality: 0.7 });
-    if (!result.canceled && result.assets[0]) {
-      setFotos({ ...fotos, [tipo]: result.assets[0].uri });
+    try {
+      const result = await ImagePicker.launchImageLibraryAsync({
+        mediaTypes: ['images'],
+        allowsEditing: true,
+        aspect: [3, 4],
+        quality: 0.7 });
+      if (!result.canceled && result.assets[0]) {
+        setFotos({ ...fotos, [tipo]: guardarFotoPermanente(result.assets[0].uri) });
+      }
+    } catch (error: any) {
+      Alert.alert('Error', error?.message ?? 'No se pudo guardar la foto');
     }
   };
 
   const tomarFoto = async (tipo: keyof typeof fotos) => {
-    const perm = await ImagePicker.requestCameraPermissionsAsync();
-    if (!perm.granted) {
-      Alert.alert('Permiso requerido', 'Necesitamos acceso a la cámara para tomar la foto.');
-      return;
-    }
-    const result = await ImagePicker.launchCameraAsync({
-      allowsEditing: true,
-      aspect: [3, 4],
-      quality: 0.7 });
-    if (!result.canceled && result.assets[0]) {
-      setFotos({ ...fotos, [tipo]: result.assets[0].uri });
+    try {
+      const perm = await ImagePicker.requestCameraPermissionsAsync();
+      if (!perm.granted) {
+        Alert.alert('Permiso requerido', 'Necesitamos acceso a la cámara para tomar la foto.');
+        return;
+      }
+      const result = await ImagePicker.launchCameraAsync({
+        allowsEditing: true,
+        aspect: [3, 4],
+        quality: 0.7 });
+      if (!result.canceled && result.assets[0]) {
+        setFotos({ ...fotos, [tipo]: guardarFotoPermanente(result.assets[0].uri) });
+      }
+    } catch (error: any) {
+      Alert.alert('Error', error?.message ?? 'No se pudo guardar la foto');
     }
   };
   const [submitting, setSubmitting] = useState(false);
@@ -205,9 +234,14 @@ export default function FichaFormScreen() {
   const allPerimetrosValid = Object.values(perimetros).every(v => v > 0);
 
   return (
-    <KeyboardAvoidingView style={styles.container} behavior="padding">
+    <KeyboardAvoidingView style={[styles.container, { paddingTop: insets.top }]} behavior="padding">
+      <ScreenHeader
+        title={fichaAnterior ? 'Rehacer ficha' : 'Ficha inicial'}
+        subtitle={fichaAnterior ? `Reemplaza la del ${formatDate(fichaAnterior.fecha)}` : undefined}
+        onBack={volver}
+      />
       {/* Step Indicator */}
-      <View style={[styles.stepBar, { paddingTop: insets.top + 12 }]}>
+      <View style={styles.stepBar}>
         {STEPS.map((step, i) => (
           <TouchableOpacity
             key={step.key}
@@ -248,7 +282,7 @@ export default function FichaFormScreen() {
               <View style={styles.campos}>
                 <Input
                   label="Peso (kg)"
-                  placeholder="70,5"
+                  placeholder={referencia(fichaAnterior?.peso, '70,5')}
                   value={pesoTexto}
                   onChange={(v) => setPesoTexto(limpiarDecimal(v))}
                   keyboardType="decimal-pad"
@@ -257,7 +291,7 @@ export default function FichaFormScreen() {
                 />
                 <Input
                   label="Grasa Corporal (%)"
-                  placeholder="15"
+                  placeholder={referencia(fichaAnterior?.grasaCorporal, '15')}
                   value={grasaTexto}
                   onChange={(v) => setGrasaTexto(limpiarDecimal(v))}
                   keyboardType="decimal-pad"
@@ -265,7 +299,7 @@ export default function FichaFormScreen() {
                 />
                 <Input
                   label="Masa Muscular (kg)"
-                  placeholder="30"
+                  placeholder={referencia(fichaAnterior?.musculatura, '30')}
                   value={musculoTexto}
                   onChange={(v) => setMusculoTexto(limpiarDecimal(v))}
                   keyboardType="decimal-pad"
@@ -293,7 +327,7 @@ export default function FichaFormScreen() {
                   <Text style={styles.perimetroLabel}>{getPerimetroLabel(key as any)}</Text>
                   <View style={styles.perimetroInputWrapper}>
                     <Input
-                      placeholder="0"
+                      placeholder={fichaAnterior?.perimetros?.[key as keyof Perimetros] ? formatNumero(fichaAnterior.perimetros[key as keyof Perimetros]) : '0'}
                       value={value}
                       onChange={(v) => updatePerimetro(key as keyof Perimetros, v)}
                       keyboardType="decimal-pad"

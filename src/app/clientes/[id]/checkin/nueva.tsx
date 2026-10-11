@@ -14,6 +14,7 @@ import { Button, Card, CardContent, Input } from '@/components/ui';
 import { checkinSemanalSchema } from '@/schemas/validation';
 import { generateId, createEmptyPerimetros, createEmptyFotos, formatDate, getPerimetroLabel } from '@/utils/helpers';
 import { getDatabase, runTransaction } from '@/db/database';
+import { guardarFotoPermanente } from '@/services/fotos';
 import { useTheme } from '@/hooks/useTheme';
 import type { Theme } from '@/constants/theme';
 import type { FotosProgreso, Perimetros } from '@/types';
@@ -238,7 +239,7 @@ export default function CheckinFormScreen() {
         aspect: [3, 4],
         quality: 0.7,
       });
-      if (!result.canceled && result.assets[0]) setFoto(tipo, result.assets[0].uri);
+      if (!result.canceled && result.assets[0]) setFoto(tipo, guardarFotoPermanente(result.assets[0].uri));
     } catch (error: any) {
       Alert.alert('Error', error?.message ?? 'No se pudo abrir la galería');
     }
@@ -256,7 +257,7 @@ export default function CheckinFormScreen() {
         aspect: [3, 4],
         quality: 0.7,
       });
-      if (!result.canceled && result.assets[0]) setFoto(tipo, result.assets[0].uri);
+      if (!result.canceled && result.assets[0]) setFoto(tipo, guardarFotoPermanente(result.assets[0].uri));
     } catch (error: any) {
       Alert.alert('Error', error?.message ?? 'No se pudo abrir la cámara');
     }

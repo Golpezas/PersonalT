@@ -156,10 +156,15 @@ export interface EjercicioGenerado {
   progresion?: ProgresionPlan;
 }
 
-const PROGRESION_SEGUNDOS: ProgresionPlan = {
+export const PROGRESION_SEGUNDOS: ProgresionPlan = {
   tipo: 'personalizada',
   descripcion: 'Reps en segundos · +5 s por semana',
 };
+
+export const NOTA_SEGUNDOS = 'Repeticiones = segundos de sostén';
+
+/** Ejercicios del catálogo base que la plantilla prescribe en segundos. */
+export const EJERCICIOS_ISOMETRICOS = ['ex-60', 'ex-61'];
 
 export interface DiaGenerado {
   orden: number;
@@ -199,7 +204,7 @@ export function generarPlantilla(somatotipo: Somatotipo, silueta: Silueta): Plan
         repeticiones: e.segundos ? p.segundos : e.compuesto ? p.reps.compuesto : p.reps.aislado,
         rpe: p.rpe,
         descanso: e.compuesto ? p.descanso.compuesto : p.descanso.aislado,
-        notas: e.segundos ? 'Repeticiones = segundos de sostén' : '',
+        notas: e.segundos ? NOTA_SEGUNDOS : '',
         progresion: e.segundos ? PROGRESION_SEGUNDOS : undefined,
       })),
     };
