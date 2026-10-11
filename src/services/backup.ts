@@ -15,6 +15,7 @@ import type { Scalar } from '@op-engineering/op-sqlite';
 import { getDatabase, runTransaction, ensureSeedData } from '@/db/database';
 import { DATABASE_VERSION } from '@/db/schema';
 import { STORAGE_KEYS } from '@/constants';
+import { borrarTodasLasFotos, escribirFotoBase64, leerFotoBase64 } from '@/services/fotos';
 import {
   useClientesStore,
   useProgresoStore,
@@ -36,18 +37,40 @@ const TABLES = [
 
 export type TableName = (typeof TABLES)[number];
 
+/** Tablas cuya columna `fotos` es un JSON { frontal, lateral, posterior } con uris. */
+const TABLAS_CON_FOTOS: readonly TableName[] = ['fichas_iniciales', 'checkins_semanales'];
+
 export interface BackupFile {
   version: number;
   exportDate: string;
   app: { nombre: string; dbVersion: number };
   conteos: Record<string, number>;
   data: Record<string, Record<string, any>[]>;
+  /** Fotos de progreso: nombre de archivo -> base64. Solo en los respaldos exportados. */
+  fotos?: Record<string, string>;
 }
+
+function parseFotos(valor: unknown): Record<string, string> {
+  if (valor && typeof valor === 'object') return valor as Record<string, string>;
+  if (typeof valor !== 'string') return {};
+  try {
+    const parsed = JSON.parse(valor);
+    return parsed && typeof parsed === 'object' ? parsed : {};
+  } catch {
+    return {};
+  }
+}
+
+const nombreDeUri = (uri: string): string => uri.split('/').pop() ?? '';
 
 // ============================================
 // EXPORT
 // ============================================
-export function collectBackup(): BackupFile {
+/**
+ * `incluirFotos`: los respaldos que salen del teléfono llevan las imágenes; los
+ * automáticos no, porque quedan en el mismo teléfono que las fotos.
+ */
+export function collectBackup(incluirFotos = false): BackupFile {
   const db = getDatabase();
   const data: Record<string, Record<string, any>[]> = {};
   const conteos: Record<string, number> = {};
@@ -58,12 +81,28 @@ export function collectBackup(): BackupFile {
     conteos[table] = result.rows.length;
   }
 
-  return {
+  const backup: BackupFile = {
     version: BACKUP_VERSION,
     exportDate: new Date().toISOString(),
     app: { nombre: 'PersonalTrainer', dbVersion: DATABASE_VERSION },
     conteos,
     data };
+
+  if (incluirFotos) {
+    const fotos: Record<string, string> = {};
+    for (const table of TABLAS_CON_FOTOS) {
+      for (const row of data[table]) {
+        for (const uri of Object.values(parseFotos(row.fotos))) {
+          const foto = typeof uri === 'string' ? leerFotoBase64(uri) : null;
+          if (foto) fotos[foto.nombre] = foto.base64;
+        }
+      }
+    }
+    backup.fotos = fotos;
+    conteos.fotos = Object.keys(fotos).length;
+  }
+
+  return backup;
 }
 
 function serialize(backup: BackupFile): string {
@@ -84,7 +123,7 @@ function writeJsonFile(file: File, json: string) {
 
 /** Guarda el backup en el directorio de documento del dispositivo. Devuelve el path. */
 export function saveBackupFile(): { uri: string; bytes: number } {
-  const json = serialize(collectBackup());
+  const json = serialize(collectBackup(true));
   const file = new File(Paths.document, `personaltrainer-backup-${timestamp()}.json`);
   writeJsonFile(file, json);
   return { uri: file.uri, bytes: file.size };
@@ -92,12 +131,12 @@ export function saveBackupFile(): { uri: string; bytes: number } {
 
 /** Guarda el backup en caché y abre el share sheet para enviarlo (WhatsApp, Drive, mail...). */
 export async function exportAndShare(): Promise<{ uri: string; total: number; shared: boolean }> {
-  const backup = collectBackup();
+  const backup = collectBackup(true);
   const json = serialize(backup);
   const file = new File(Paths.cache, `personaltrainer-backup-${timestamp()}.json`);
   writeJsonFile(file, json);
 
-  const total = Object.values(backup.conteos).reduce((a, b) => a + b, 0);
+  const total = TABLES.reduce((acc, t) => acc + (backup.conteos[t] ?? 0), 0);
 
   if (!(await Sharing.isAvailableAsync())) {
     return { uri: file.uri, total, shared: false };
@@ -210,6 +249,29 @@ export function importBackup(backup: BackupFile, modo: 'replace' | 'merge' = 're
 
   const conteos: Record<string, number> = {};
 
+  // Las fotos se escriben antes de tocar la base: si falla (sin espacio), los datos quedan intactos.
+  const urisRestauradas = new Map<string, string>();
+  if (backup.fotos && typeof backup.fotos === 'object') {
+    try {
+      for (const [nombre, base64] of Object.entries(backup.fotos)) {
+        if (typeof base64 === 'string' && base64) urisRestauradas.set(nombre, escribirFotoBase64(nombre, base64));
+      }
+    } catch (e: any) {
+      return { ok: false, modo, conteos: {}, error: `No se pudieron guardar las fotos: ${e?.message ?? e}` };
+    }
+  }
+
+  /** Apunta las fotos de la fila a los archivos recién restaurados. */
+  const conFotosRestauradas = (row: Record<string, any>): Record<string, any> => {
+    if (urisRestauradas.size === 0 || row.fotos == null) return row;
+    const fotos = parseFotos(row.fotos);
+    for (const [angulo, uri] of Object.entries(fotos)) {
+      const nueva = typeof uri === 'string' ? urisRestauradas.get(nombreDeUri(uri)) : undefined;
+      if (nueva) fotos[angulo] = nueva;
+    }
+    return { ...row, fotos: JSON.stringify(fotos) };
+  };
+
   try {
     runTransaction((tx) => {
       if (modo === 'replace') {
@@ -227,9 +289,11 @@ export function importBackup(backup: BackupFile, modo: 'replace' | 'merge' = 're
           continue;
         }
         const permitidas = tableColumns(table);
+        const tieneFotos = TABLAS_CON_FOTOS.includes(table);
         let inserted = 0;
-        for (const row of rows) {
-          if (!row || typeof row !== 'object' || row.id == null) continue;
+        for (const original of rows) {
+          if (!original || typeof original !== 'object' || original.id == null) continue;
+          const row = tieneFotos ? conFotosRestauradas(original) : original;
           // Solo columnas reales de la tabla: evita SQL inyectado vía nombres de clave.
           const cols = Object.keys(row).filter((c) => permitidas.has(c));
           if (cols.length === 0) continue;
@@ -254,6 +318,7 @@ export function importBackup(backup: BackupFile, modo: 'replace' | 'merge' = 're
   }
 
   ensureSeedData();
+  if (urisRestauradas.size > 0) conteos.fotos = urisRestauradas.size;
   return { ok: true, modo, conteos };
 }
 
@@ -300,6 +365,11 @@ export function clearAllData(): void {
       tx.executeSync(`DELETE FROM ${table}`);
     }
   });
+  try {
+    borrarTodasLasFotos();
+  } catch (e) {
+    console.warn('[backup] no se pudieron borrar las fotos:', e);
+  }
   ensureSeedData();
 }
 

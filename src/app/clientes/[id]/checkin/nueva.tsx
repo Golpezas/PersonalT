@@ -12,7 +12,7 @@ import DateTimePicker from '@react-native-community/datetimepicker';
 import { useProgresoStore, useUIStore } from '@/stores';
 import { Button, Card, CardContent, Input } from '@/components/ui';
 import { checkinSemanalSchema } from '@/schemas/validation';
-import { generateId, createEmptyPerimetros, createEmptyFotos, formatDate, getPerimetroLabel } from '@/utils/helpers';
+import { generateId, createEmptyPerimetros, createEmptyFotos, formatDate, formatNumero, getPerimetroLabel } from '@/utils/helpers';
 import { getDatabase, runTransaction } from '@/db/database';
 import { guardarFotoPermanente } from '@/services/fotos';
 import { useTheme } from '@/hooks/useTheme';
@@ -100,7 +100,7 @@ const numeroOpcional = (v: unknown): number | undefined => {
   return Number.isFinite(n) ? n : undefined;
 };
 
-const aTexto = (n: number | undefined): string => (n !== undefined && n > 0 ? String(n) : '');
+const aTexto = (n: number | undefined): string => (n !== undefined && n > 0 ? formatNumero(n) : '');
 
 /** Fecha local YYYY-MM-DD (toISOString usa UTC y corre el día de noche). */
 const fechaLocalISO = (d: Date): string =>
@@ -410,7 +410,7 @@ export default function CheckinFormScreen() {
             <View style={styles.campos}>
               <Input
                 label="Peso (kg)"
-                placeholder="70,5"
+                placeholder="Ej: 70,5"
                 keyboardType="decimal-pad"
                 value={pesoTexto}
                 onChange={(v) => setPesoTexto(limpiarDecimal(v))}
@@ -421,7 +421,7 @@ export default function CheckinFormScreen() {
                 <View style={styles.halfWidth}>
                   <Input
                     label="Grasa (%)"
-                    placeholder="15"
+                    placeholder="Ej: 15"
                     keyboardType="decimal-pad"
                     value={grasaTexto}
                     onChange={(v) => setGrasaTexto(limpiarDecimal(v))}
@@ -431,7 +431,7 @@ export default function CheckinFormScreen() {
                 <View style={styles.halfWidth}>
                   <Input
                     label="Músculo (kg)"
-                    placeholder="30"
+                    placeholder="Ej: 30"
                     keyboardType="decimal-pad"
                     value={musculoTexto}
                     onChange={(v) => setMusculoTexto(limpiarDecimal(v))}

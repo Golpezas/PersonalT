@@ -6,7 +6,7 @@
  * se copia a `documentos/fotos/` y en SQLite se guarda esa uri.
  */
 
-import { Directory, File, Paths } from 'expo-file-system';
+import { Directory, EncodingType, File, Paths } from 'expo-file-system';
 import { generateId } from '@/utils/helpers';
 
 function dirFotos(): Directory {
@@ -25,6 +25,34 @@ export function guardarFotoPermanente(uri: string): string {
   const destino = new File(dirFotos(), `${generateId()}${origen.extension || '.jpg'}`);
   origen.copySync(destino);
   return destino.uri;
+}
+
+/** Nombre de archivo y contenido en base64, o null si la foto ya no existe. */
+export function leerFotoBase64(uri: string): { nombre: string; base64: string } | null {
+  if (!uri) return null;
+  try {
+    const file = new File(uri);
+    if (!file.exists) return null;
+    return { nombre: file.name, base64: file.base64Sync() };
+  } catch {
+    return null;
+  }
+}
+
+/** Escribe una foto de un respaldo en la carpeta permanente y devuelve su uri. */
+export function escribirFotoBase64(nombre: string, base64: string): string {
+  // Solo el nombre: un respaldo editado no puede escribir fuera de la carpeta.
+  const limpio = nombre.replace(/[^\w.-]/g, '_').replace(/^\.+/, '_');
+  const file = new File(dirFotos(), limpio);
+  file.create({ overwrite: true });
+  file.write(base64, { encoding: EncodingType.Base64 });
+  return file.uri;
+}
+
+/** Borra la carpeta de fotos completa (al limpiar todos los datos). */
+export function borrarTodasLasFotos(): void {
+  const dir = new Directory(Paths.document, 'fotos');
+  if (dir.exists) dir.delete();
 }
 
 /**

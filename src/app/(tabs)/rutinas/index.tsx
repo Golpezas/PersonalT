@@ -128,7 +128,7 @@ export default function RutinasScreen() {
             title={tieneFicha ? 'Sin rutinas todavía' : 'Falta la ficha inicial'}
             subtitle={
               tieneFicha
-                ? 'Diseñá la primera rutina. El editor ya viene con 75 ejercicios del catálogo y progresión automática.'
+                ? 'Diseñá la primera rutina. El editor ya viene con el catálogo de ejercicios y progresión automática.'
                 : 'Sin ficha inicial no se puede prescribir con criterio. Cargá peso, perímetros y fotos primero.'
             }
             action={

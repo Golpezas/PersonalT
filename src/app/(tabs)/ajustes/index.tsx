@@ -12,6 +12,7 @@ import { useUIStore } from '@/stores';
 import { Card, CardHeader, CardContent } from '@/components/ui';
 import { STORAGE_KEYS } from '@/constants';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import Constants from 'expo-constants';
 import {
   exportAndShare,
   pickAndImport,
@@ -21,6 +22,8 @@ import {
   listAutoBackups,
   getLastBackupAt,
   resyncStoresFromDatabase } from '@/services/backup';
+
+const VERSION = Constants.expoConfig?.version ?? '';
 
 /** Cede un frame para que el overlay "ocupado" se pinte antes de trabajo síncrono. */
 const nextFrame = () => new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
@@ -41,7 +44,8 @@ const TABLE_LABELS: Record<string, string> = {
   ejercicios: 'Ejercicios',
   rutinas_semanales: 'Rutinas',
   entrenamientos_realizados: 'Entrenamientos',
-  metas: 'Metas' };
+  metas: 'Metas',
+  fotos: 'Fotos' };
 
 export default function AjustesScreen() {
   const t = useTheme();
@@ -145,7 +149,8 @@ export default function AjustesScreen() {
         Object.entries(actuales)
           .filter(([, n]) => n > 0)
           .map(([t, n]) => `• ${TABLE_LABELS[t] || t}: ${n}`)
-          .join('\n'),
+          .join('\n') +
+        '\n\nIncluye las fotos de progreso.',
       [
         { text: 'Cancelar', style: 'cancel' },
         {
@@ -208,7 +213,9 @@ export default function AjustesScreen() {
         Alert.alert('Error al importar', resultado.error ?? 'Archivo inválido');
         return;
       }
-      const total = Object.values(resultado.conteos).reduce((a, b) => a + b, 0);
+      const total = Object.entries(resultado.conteos)
+        .filter(([t]) => t !== 'fotos')
+        .reduce((a, [, n]) => a + n, 0);
       resyncStoresFromDatabase();
       refreshCounts();
       addToast(`Importados ${total} registros`, 'success');
@@ -231,7 +238,7 @@ export default function AjustesScreen() {
     const total = Object.values(conteos).reduce((a, b) => a + b, 0);
     Alert.alert(
       'Limpiar todos los datos',
-      `¡ATENCIÓN! Se eliminarán ${total} registros de forma permanente.\n\nTe recomendamos exportar un backup antes.`,
+      `¡ATENCIÓN! Se eliminarán ${total} registros y las fotos de progreso de forma permanente.\n\nTe recomendamos exportar un backup antes.`,
       [
         { text: 'Cancelar', style: 'cancel' },
         {
@@ -274,7 +281,7 @@ export default function AjustesScreen() {
   const handleAbout = () => {
     Alert.alert(
       'Personal Trainer',
-      'Versión 1.0.0\n\nApp para entrenadores personales especializada en hipertrofia.\n\nDesarrollado con React Native + Expo',
+      `Versión ${VERSION}\n\n` + 'App para entrenadores personales especializada en hipertrofia.\n\nDesarrollado con React Native + Expo',
       [{ text: 'OK' }]
     );
   };
@@ -357,7 +364,7 @@ export default function AjustesScreen() {
       items: [
         {
           label: 'Versión',
-          value: '1.0.0',
+          value: VERSION,
           action: () => {},
           type: 'info' as const },
         {
@@ -449,7 +456,7 @@ export default function AjustesScreen() {
         ))}
 
         <Text style={[t.typography.caption, { color: t.colors.textSubtle, textAlign: 'center', paddingVertical: 12 }]}>
-          Personal Trainer v1.0.0
+          Personal Trainer v{VERSION}
         </Text>
       </ScrollView>
 
