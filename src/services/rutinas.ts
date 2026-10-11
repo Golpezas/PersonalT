@@ -6,6 +6,7 @@
  * completan nombre y grupo muscular desde el catálogo `ejercicios`.
  */
 
+import { startOfWeek } from 'date-fns';
 import { getDatabase } from '@/db/database';
 import type { DiaRutina, EjercicioRutina, RutinaSemanal } from '@/types';
 
@@ -92,6 +93,27 @@ export function leerRutina(id: string): RutinaDetalle | null {
     console.error('[rutinas] error al leer rutina:', error);
     return null;
   }
+}
+
+/**
+ * Días de la rutina entrenados en la semana en curso (lunes a domingo, hora local).
+ * Devuelve diaId -> fecha ISO del último registro de ese día.
+ */
+export function leerDiasHechosEstaSemana(rutinaId: string): Map<string, string> {
+  const mapa = new Map<string, string>();
+  try {
+    // `fecha` se guarda con toISOString(): comparar strings ISO en UTC es seguro.
+    const desde = startOfWeek(new Date(), { weekStartsOn: 1 }).toISOString();
+    const rows = getDatabase().executeSync(
+      `SELECT dia_rutina_id, MAX(fecha) AS fecha FROM entrenamientos_realizados
+       WHERE rutina_semanal_id = ? AND fecha >= ? GROUP BY dia_rutina_id`,
+      [rutinaId, desde]
+    ).rows as Row[];
+    for (const r of rows) mapa.set(String(r.dia_rutina_id), String(r.fecha));
+  } catch (error) {
+    console.error('[rutinas] error al leer días hechos:', error);
+  }
+  return mapa;
 }
 
 /** Elimina la rutina. Los entrenamientos registrados con ella se borran en cascada. */

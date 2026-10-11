@@ -5,16 +5,16 @@
  * (series × reps, RPE, descanso, tempo), notas y acceso directo al logger.
  */
 
-import React, { useMemo } from 'react';
+import React, { useCallback, useMemo, useState } from 'react';
 import { View, Text, ScrollView, StyleSheet, Alert } from 'react-native';
-import { router, useLocalSearchParams } from 'expo-router';
+import { router, useFocusEffect, useLocalSearchParams } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useTheme } from '@/hooks/useTheme';
 import { useRutinasStore, useUIStore } from '@/stores';
 import { Button, Card, CardHeader, CardContent, Badge, EmptyState, ScreenHeader } from '@/components/ui';
-import { getGrupoMuscularLabel, getProgresionLabel } from '@/utils/helpers';
-import { eliminarRutina, leerRutina } from '@/services/rutinas';
+import { formatHecho, getGrupoMuscularLabel, getProgresionLabel } from '@/utils/helpers';
+import { eliminarRutina, leerDiasHechosEstaSemana, leerRutina } from '@/services/rutinas';
 import { GRUPOS_MUSCULARES } from '@/constants';
 
 type Params = { id: string };
@@ -30,6 +30,13 @@ export default function RutinaDetalleScreen() {
   const addToast = useUIStore((s) => s.addToast);
 
   const rutina = useMemo(() => leerRutina(id), [id]);
+
+  const [diasHechos, setDiasHechos] = useState<Map<string, string>>(() => new Map());
+  useFocusEffect(
+    useCallback(() => {
+      setDiasHechos(leerDiasHechosEstaSemana(id));
+    }, [id])
+  );
 
   const resumen = useMemo(() => {
     if (!rutina) return { dias: 0, ejercicios: 0, series: 0 };
@@ -113,14 +120,16 @@ export default function RutinaDetalleScreen() {
 
         {rutina.dias.map((dia) => {
           const entrenable = !dia.esDescanso && dia.ejercicios.length > 0;
+          const hecho = diasHechos.get(dia.id);
           return (
-            <Card key={dia.id}>
+            <Card key={dia.id} style={hecho ? { borderWidth: 1, borderColor: t.colors.success } : undefined}>
               <CardHeader
                 title={dia.nombre}
                 subtitle={
                   dia.esDescanso
                     ? 'Descanso'
-                    : `${dia.ejercicios.length} ejercicio${dia.ejercicios.length !== 1 ? 's' : ''}`
+                    : `${dia.ejercicios.length} ejercicio${dia.ejercicios.length !== 1 ? 's' : ''}` +
+                      (hecho ? ` · ${formatHecho(hecho)}` : '')
                 }
                 action={
                   entrenable ? (

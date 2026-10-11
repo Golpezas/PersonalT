@@ -72,6 +72,10 @@ export const formatRelativeTime = (date: string | Date): string => {
   return 'ahora';
 };
 
+/** "Hecho hoy" | "Hecho ayer" | "Hecho hace N días" para un timestamp ISO de entrenamiento. */
+export const formatHecho = (fechaIso: string): string =>
+  `Hecho ${formatRelativeTime(fechaLocalISO(new Date(fechaIso)))}`;
+
 export const getWeekNumber = (date: string | Date): number => {
   const d = typeof date === 'string' ? parseISO(date) : date;
   if (!isValid(d)) return 1;

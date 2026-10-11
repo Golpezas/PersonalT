@@ -401,6 +401,17 @@ function Logger({ rutinaId, diaId, onTerminar }: { rutinaId: string; diaId: stri
     [estado]
   );
 
+  const pendientes = useMemo(() => {
+    let series = 0;
+    let ejercicios = 0;
+    for (const e of estado) {
+      const n = e.series.filter((s) => !s.completada).length;
+      series += n;
+      if (n > 0) ejercicios += 1;
+    }
+    return { series, ejercicios };
+  }, [estado]);
+
   const mejor1RM = useMemo(() => {
     let max = 0;
     let ejercicio = '';
@@ -462,12 +473,18 @@ function Logger({ rutinaId, diaId, onTerminar }: { rutinaId: string; diaId: stri
       Alert.alert('Nada registrado', 'Marca al menos una serie como completada antes de guardar.');
       return;
     }
+    const avisoPendientes =
+      pendientes.series > 0
+        ? `\n\nQuedan ${pendientes.series} serie${pendientes.series !== 1 ? 's' : ''} sin marcar ` +
+          `en ${pendientes.ejercicios} ejercicio${pendientes.ejercicios !== 1 ? 's' : ''}. ` +
+          'Las series sin marcar no se guardan.'
+        : '';
     Alert.alert(
-      'Finalizar entrenamiento',
-      `${seriesCompletadas} series · ${Math.round(volumenTotal)} kg de volumen\nDuración: ${formatCronometro(Math.floor(duracionActualMs() / 1000))}\n\n¿Guardar el entrenamiento?`,
+      pendientes.series > 0 ? 'Entrenamiento incompleto' : 'Finalizar entrenamiento',
+      `${seriesCompletadas} serie${seriesCompletadas !== 1 ? 's' : ''} · ${Math.round(volumenTotal)} kg de volumen\nDuración: ${formatCronometro(Math.floor(duracionActualMs() / 1000))}${avisoPendientes}\n\n¿Guardar el entrenamiento?`,
       [
         { text: 'Seguir entrenando', style: 'cancel' },
-        { text: 'Guardar', onPress: guardar },
+        { text: pendientes.series > 0 ? 'Guardar igual' : 'Guardar', onPress: guardar },
       ]
     );
   };

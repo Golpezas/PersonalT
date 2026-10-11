@@ -624,16 +624,18 @@ export default function ClienteDetailScreen() {
         {/* Metas Tab */}
         {activeTab === 'metas' && (
           <>
-            <View style={styles.buttonRow}>
-              <Button
-                variant="primary"
-                onPress={() => router.push(`/clientes/${id}/meta/nueva`)}
-                style={styles.flexButton}
-                leftIcon={<Ionicons name="add" size={18} color={t.colors.onPrimary} />}
-              >
-                Nueva Meta
-              </Button>
-            </View>
+            {metasConProgreso.length > 0 && (
+              <View style={styles.buttonRow}>
+                <Button
+                  variant="primary"
+                  onPress={() => router.push(`/clientes/${id}/meta/nueva`)}
+                  style={styles.flexButton}
+                  leftIcon={<Ionicons name="add" size={18} color={t.colors.onPrimary} />}
+                >
+                  Nueva Meta
+                </Button>
+              </View>
+            )}
             {metasConProgreso.length > 0 ? (
               metasConProgreso.map(({ meta, progreso }) => (
                 <Card key={meta.id} style={styles.sectionCard}>

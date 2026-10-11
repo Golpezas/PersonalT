@@ -4,17 +4,42 @@
     "strict": false,
     "ignoreDeprecations": "6.0",
     "paths": {
-      "@/*": ["./src/*"],
-      "@/components/*": ["./src/components/*"],
-      "@/hooks/*": ["./src/hooks/*"],
-      "@/utils/*": ["./src/utils/*"],
-      "@/stores/*": ["./src/stores/*"],
-      "@/types/*": ["./src/types/*"],
-      "@/db/*": ["./src/db/*"],
-      "@/schemas/*": ["./src/schemas/*"],
-      "@/constants/*": ["./src/constants/*"]
+      "@/*": [
+        "./src/*"
+      ],
+      "@/components/*": [
+        "./src/components/*"
+      ],
+      "@/hooks/*": [
+        "./src/hooks/*"
+      ],
+      "@/utils/*": [
+        "./src/utils/*"
+      ],
+      "@/stores/*": [
+        "./src/stores/*"
+      ],
+      "@/types/*": [
+        "./src/types/*"
+      ],
+      "@/db/*": [
+        "./src/db/*"
+      ],
+      "@/schemas/*": [
+        "./src/schemas/*"
+      ],
+      "@/constants/*": [
+        "./src/constants/*"
+      ]
     }
   },
-  "include": ["src", "app"],
-  "exclude": ["node_modules"]
+  "include": [
+    "src",
+    "app",
+    ".expo/types/**/*.ts",
+    "expo-env.d.ts"
+  ],
+  "exclude": [
+    "node_modules"
+  ]
 }

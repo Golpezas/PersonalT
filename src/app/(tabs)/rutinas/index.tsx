@@ -15,8 +15,8 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useTheme } from '@/hooks/useTheme';
 import { useClientesStore, useRutinasStore, useUIStore } from '@/stores';
 import { Button, Card, CardHeader, CardContent, Chip, Badge, EmptyState, Avatar } from '@/components/ui';
-import { getGrupoMuscularLabel, getProgresionLabel } from '@/utils/helpers';
-import { leerRutinas } from '@/services/rutinas';
+import { formatHecho, getGrupoMuscularLabel, getProgresionLabel } from '@/utils/helpers';
+import { leerDiasHechosEstaSemana, leerRutinas } from '@/services/rutinas';
 import { useGuardFicha } from '@/hooks/useGuardFicha';
 import { GRUPOS_MUSCULARES } from '@/constants';
 
@@ -57,6 +57,15 @@ export default function RutinasScreen() {
       if (selectedClienteId) setRutinasForCliente(selectedClienteId, leerRutinas(selectedClienteId));
     }, [selectedClienteId, setRutinasForCliente])
   );
+
+  const activeRutinaId = activeRutina?.id;
+  const [diasHechos, setDiasHechos] = useState<Map<string, string>>(() => new Map());
+  useFocusEffect(
+    useCallback(() => {
+      setDiasHechos(activeRutinaId ? leerDiasHechosEstaSemana(activeRutinaId) : new Map());
+    }, [activeRutinaId])
+  );
+  const hechoDiaActual = diaActual ? diasHechos.get(diaActual.id) : undefined;
 
   // ------------------------------------------------------------------ Estados vacíos
   if (!selectedClienteId) {
@@ -172,12 +181,14 @@ export default function RutinasScreen() {
           <View style={styles.weekRow}>
             {diasRutina.map((dia) => {
               const activo = diaActual?.id === dia.id;
+              const hecho = diasHechos.has(dia.id);
               return (
                 <Pressable
                   key={dia.id}
                   onPress={() => setSelectedOrden(dia.orden)}
                   accessibilityRole="tab"
                   accessibilityState={{ selected: activo }}
+                  accessibilityLabel={`${dia.nombre}${hecho ? ', hecho esta semana' : ''}`}
                   style={[
                     styles.weekCard,
                     {
@@ -195,9 +206,17 @@ export default function RutinasScreen() {
                     {dia.nombre.slice(0, 3).toUpperCase()}
                   </Text>
                   <Ionicons
-                    name={dia.esDescanso ? 'moon-outline' : 'barbell-outline'}
-                    size={14}
-                    color={activo ? t.colors.onPrimary : dia.esDescanso ? t.colors.textSubtle : t.colors.text}
+                    name={hecho ? 'checkmark-circle' : dia.esDescanso ? 'moon-outline' : 'barbell-outline'}
+                    size={hecho ? 16 : 14}
+                    color={
+                      activo
+                        ? t.colors.onPrimary
+                        : hecho
+                          ? t.colors.success
+                          : dia.esDescanso
+                            ? t.colors.textSubtle
+                            : t.colors.text
+                    }
                     style={{ marginTop: 2 }}
                   />
                 </Pressable>
@@ -214,7 +233,8 @@ export default function RutinasScreen() {
               subtitle={
                 diaActual.esDescanso
                   ? 'Descanso programado'
-                  : `${diaActual.ejercicios.length} ejercicio${diaActual.ejercicios.length !== 1 ? 's' : ''}`
+                  : `${diaActual.ejercicios.length} ejercicio${diaActual.ejercicios.length !== 1 ? 's' : ''}` +
+                    (hechoDiaActual ? ` · ${formatHecho(hechoDiaActual)}` : '')
               }
               action={
                 !diaActual.esDescanso && diaActual.ejercicios.length > 0 && activeRutina ? (
