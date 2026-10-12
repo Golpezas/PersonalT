@@ -10,7 +10,7 @@ import { Ionicons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useClientesStore, useEntrenamientosStore, useUIStore } from '@/stores';
-import { Button, Card, CardContent, Input } from '@/components/ui';
+import { Button, Card, CardContent, Input, EjercicioFotos } from '@/components/ui';
 import { getDatabase, runTransaction } from '@/db/database';
 import { entrenamientoRealizadoSchema } from '@/schemas/validation';
 import {
@@ -703,6 +703,9 @@ function Logger({ rutinaId, diaId, onTerminar }: { rutinaId: string; diaId: stri
 
               {!e.colapsado && (
                 <View style={styles.ejBody}>
+                  <View style={styles.ejFotos}>
+                    <EjercicioFotos ejercicioId={ejRutina?.ejercicioId} nombre={e.nombre} />
+                  </View>
                   <View style={styles.seriesHeader}>
                     <Text style={[styles.colLabel, styles.colNum]}>#</Text>
                     <Text style={[styles.colLabel, styles.colPeso]}>Peso (kg)</Text>
@@ -905,6 +908,7 @@ const createStyles = (t: Theme) => StyleSheet.create({
   ejVolumenValue: { fontSize: 15, fontWeight: '700', color: t.colors.text },
   ejVolumenLabel: { fontSize: 9, color: t.colors.textSubtle },
   ejBody: { paddingHorizontal: 14, paddingBottom: 14, gap: 6 },
+  ejFotos: { marginBottom: 6 },
   seriesHeader: { flexDirection: 'row', alignItems: 'center', gap: 6, paddingBottom: 4 },
   colLabel: { fontSize: 10, color: t.colors.textSubtle, fontWeight: '600', textAlign: 'center' },
   colNum: { width: 22 },

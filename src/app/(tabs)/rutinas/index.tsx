@@ -14,7 +14,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useTheme } from '@/hooks/useTheme';
 import { useClientesStore, useRutinasStore, useUIStore } from '@/stores';
-import { Button, Card, CardHeader, CardContent, Chip, Badge, EmptyState, Avatar } from '@/components/ui';
+import { Button, Card, CardHeader, CardContent, Chip, Badge, EmptyState, Avatar, EjercicioMiniatura } from '@/components/ui';
 import { formatHecho, getGrupoMuscularLabel, getProgresionLabel } from '@/utils/helpers';
 import { etiquetaSemana, leerDiasHechosEstaSemana, leerRutinas, leerSemanaActual } from '@/services/rutinas';
 import { useGuardFicha } from '@/hooks/useGuardFicha';
@@ -282,6 +282,7 @@ export default function RutinasScreen() {
                     >
                       {/* Barra de color del grupo muscular: identificacion visual rapida */}
                       <View style={[styles.ejercicioBar, { backgroundColor: color ?? t.colors.border }]} />
+                      <EjercicioMiniatura ejercicioId={ej.ejercicioId} size={52} />
 
                       <View style={{ flex: 1, gap: 5 }}>
                         <Text style={[t.typography.bodyStrong, { color: t.colors.text }]} numberOfLines={2}>

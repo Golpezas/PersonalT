@@ -12,7 +12,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useTheme } from '@/hooks/useTheme';
 import { useRutinasStore, useUIStore } from '@/stores';
-import { Button, Card, CardHeader, CardContent, Badge, EmptyState, ScreenHeader } from '@/components/ui';
+import { Button, Card, CardHeader, CardContent, Badge, EmptyState, ScreenHeader, EjercicioMiniatura } from '@/components/ui';
 import { formatHecho, getGrupoMuscularLabel, getProgresionLabel } from '@/utils/helpers';
 import { eliminarRutina, etiquetaSemana, leerDiasHechosEstaSemana, leerRutina, leerSemanaActual } from '@/services/rutinas';
 import { GRUPOS_MUSCULARES } from '@/constants';
@@ -167,6 +167,7 @@ export default function RutinaDetalleScreen() {
                           <View
                             style={[styles.ejercicioBar, { backgroundColor: colorGrupo(ej.grupoMuscular) ?? t.colors.border }]}
                           />
+                          <EjercicioMiniatura ejercicioId={ej.ejercicioId} size={52} />
                           <View style={{ flex: 1, gap: 5 }}>
                             <Text style={[t.typography.bodyStrong, { color: t.colors.text }]} numberOfLines={2}>
                               {ej.nombre}

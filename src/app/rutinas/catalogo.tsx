@@ -13,6 +13,7 @@ import { getEquipoLabel, getGrupoMuscularLabel, getMuscleGroupColor, getPatronLa
 import { useTheme } from '@/hooks/useTheme';
 import type { Theme } from '@/constants/theme';
 import type { Ejercicio } from '@/types';
+import { EjercicioFotos, EjercicioMiniatura, imagenesDeEjercicio } from '@/components/ui';
 
 /** Lee el catálogo completo desde SQLite (fuente de verdad). */
 function leerEjercicios(): Ejercicio[] {
@@ -88,7 +89,13 @@ export default function CatalogoScreen() {
       >
         <View style={styles.ejercicioRow}>
           <View style={styles.ejercicioLeft}>
-            <View style={[styles.grupoDot, { backgroundColor: getMuscleGroupColor(item.grupoMuscular) }]} />
+            {imagenesDeEjercicio(item.id, item.imagenUri).length > 0 ? (
+              <EjercicioMiniatura ejercicioId={item.id} imagenUri={item.imagenUri} size={48} />
+            ) : (
+              <View style={styles.sinFoto}>
+                <View style={[styles.grupoDot, { backgroundColor: getMuscleGroupColor(item.grupoMuscular) }]} />
+              </View>
+            )}
             <View style={styles.ejercicioInfo}>
               <Text style={styles.ejercicioNombre}>{item.nombre}</Text>
               <View style={styles.ejercicioMeta}>
@@ -108,6 +115,7 @@ export default function CatalogoScreen() {
         </View>
         {abierto ? (
           <View style={styles.detalle}>
+            <EjercicioFotos ejercicioId={item.id} imagenUri={item.imagenUri} nombre={item.nombre} />
             {item.equipo.length > 0 ? (
               <Text style={styles.detalleText}>
                 <Text style={styles.detalleLabel}>Equipo: </Text>
@@ -213,6 +221,9 @@ const createStyles = (t: Theme) => StyleSheet.create({
   ejercicioRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
   ejercicioLeft: { flexDirection: 'row', alignItems: 'center', gap: 12, flex: 1 },
   grupoDot: { width: 12, height: 12, borderRadius: 6 },
+  sinFoto: {
+    width: 48, height: 48, borderRadius: t.radius.xs, backgroundColor: t.colors.surfaceAlt,
+    alignItems: 'center', justifyContent: 'center' },
   ejercicioInfo: { flex: 1 },
   ejercicioNombre: { fontSize: 15, fontWeight: '600', color: t.colors.text },
   ejercicioMeta: { flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap', gap: 4, marginTop: 3 },
